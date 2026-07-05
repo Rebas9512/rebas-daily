@@ -41,6 +41,7 @@ class Source:
     prefilter: bool = False
     paywall: bool = False
     kind: str = "article"     # 条目类型覆盖：期刊 TOC 源设 "paper"（PAPER 标签+沉淀期口径）
+    pool_days: int = 0        # 顶刊池：>0 时该源候选在出刊窗保留 N 天（落选不清扫，见 stages._window_clause）
 
 
 @dataclass(frozen=True)

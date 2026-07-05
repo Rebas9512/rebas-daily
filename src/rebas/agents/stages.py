@@ -98,20 +98,47 @@ def sweep_paper_cache(conf: AppConfig, days: int = 3) -> int:
     return removed
 
 
-def _window_clause(conf: AppConfig) -> tuple[str, list]:
+def _pooled_source_groups() -> dict[int, list[str]]:
+    """顶刊池源（pool_days > 0）按天数分组。期刊论文时效跨度长：
+    候选在出刊窗保留 pool_days 天（近似"到下一期期刊出来"），落选不被主编清扫。"""
+    groups: dict[int, list[str]] = {}
+    for s in load_sources():
+        if s.enabled and s.pool_days > 0:
+            groups.setdefault(s.pool_days, []).append(s.id)
+    return groups
+
+
+def _window_clause(conf: AppConfig, include_pool: bool = True,
+                   pool_groups: dict[int, list[str]] | None = None) -> tuple[str, list]:
     """出刊取窗：window_hours 定下限；kind=paper 另有沉淀期上限（settle=0 时无效果）。
 
     沉淀期语义：论文发布满 paper_settle_hours 才入刊——等 OpenAlex 收录（实测 ~2 天）
     与社区热度累积。未满沉淀期的论文保持 new，后续期次自然消费。
+
+    顶刊池扩窗（include_pool，2026-07-05）：pool_days>0 源的条目在 N 天池窗内
+    始终可入候选，且不受沉淀期约束（期刊见刊即"已沉淀"，收录数据已随采集带入）。
+    主编清扫处用 include_pool=False + 源排除，池内落选候选跨期保留。
     """
     now = datetime.now(timezone.utc)
     pub_cutoff = (now - timedelta(hours=conf.window_hours)).isoformat(timespec="seconds")
     settle_cutoff = (now - timedelta(hours=conf.paper_settle_hours)).isoformat(timespec="seconds")
     fetch_cutoff = (now - timedelta(hours=36)).isoformat(timespec="seconds")
-    clause = ("((published_at IS NOT NULL AND published_at >= ?"
-              "   AND (kind != 'paper' OR published_at <= ?))"
-              " OR (published_at IS NULL AND fetched_at >= ?))")
-    return clause, [pub_cutoff, settle_cutoff, fetch_cutoff]
+    branches = [("((published_at IS NOT NULL AND published_at >= ?"
+                 "   AND (kind != 'paper' OR published_at <= ?))"
+                 " OR (published_at IS NULL AND fetched_at >= ?))")]
+    params: list = [pub_cutoff, settle_cutoff, fetch_cutoff]
+    if include_pool:
+        groups = _pooled_source_groups() if pool_groups is None else pool_groups
+        for days, ids in sorted(groups.items()):
+            pool_cutoff = (now - timedelta(days=days)).isoformat(timespec="seconds")
+            ph = ",".join("?" * len(ids))
+            branches.append(f"(source_id IN ({ph})"
+                            f" AND (published_at >= ?"
+                            f"      OR (published_at IS NULL AND fetched_at >= ?)))")
+            params += [*ids, pool_cutoff, pool_cutoff]
+    if len(branches) == 1:
+        return branches[0], params
+    return "(" + " OR ".join(branches) + ")", params
 
 
 def _source_content_map() -> dict[str, str]:
@@ -413,10 +440,15 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
     conn.execute(
         f"UPDATE raw_items SET status='selected'"
         f" WHERE id IN ({','.join('?' * len(selected_ids))})", list(selected_ids))
-    clause2, params2 = _window_clause(conf)
+    # 落选清扫：顶刊池源豁免（池内候选跨期保留，随池窗自然过期）
+    clause2, params2 = _window_clause(conf, include_pool=False)
+    pooled_ids = [sid for ids in _pooled_source_groups().values() for sid in ids]
+    pool_excl = (f" AND source_id NOT IN ({','.join('?' * len(pooled_ids))})"
+                 if pooled_ids else "")
     conn.execute(
         f"UPDATE raw_items SET status='dropped'"
-        f" WHERE board=? AND status='screened' AND {clause2}", [board, *params2])
+        f" WHERE board=? AND status='screened' AND {clause2}{pool_excl}",
+        [board, *params2, *pooled_ids])
     # layout 按板块合并（此前整体覆写，只有最后一个板块的 notes 存活）
     row = conn.execute("SELECT layout FROM issues WHERE issue_date=?",
                        (issue_date,)).fetchone()

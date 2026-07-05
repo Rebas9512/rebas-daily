@@ -13,7 +13,8 @@ from rebas.config import CONFIG_DIR, Profile
 
 _SIGNAL_KEYS = ("hf_upvotes", "hn_points", "stars_today", "hf_likes",
                 "hf_downloads", "lobsters_score",
-                "oa_hindex", "oa_inst", "oa_paper_cites")   # OpenAlex 增补（enrich 阶段）
+                "oa_hindex", "oa_inst", "oa_paper_cites",   # OpenAlex 增补（enrich 阶段）
+                "venue")                                    # 顶刊来源（主编可见=天然加权）
 
 
 def render_prompt(name: str, **vars) -> str:

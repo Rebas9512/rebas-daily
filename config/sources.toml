@@ -1350,6 +1350,7 @@ content = "headline"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 12
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # 旗舰刊滚动出版 ~75 条池（论文+新闻混合），粗筛按画像滤 AI 相关
 
 [[source]]
@@ -1362,6 +1363,7 @@ content = "abstract"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 12
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # AI 专刊全对口，低量高信号
 
 [[source]]
@@ -1374,6 +1376,7 @@ content = "headline"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # 周刊 etoc，AI 论文偶发但都是大事件
 
 [[source]]
@@ -1386,6 +1389,7 @@ content = "headline"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # 月刊 etoc，对口 RL/机器人画像
 
 [[source]]
@@ -1398,6 +1402,7 @@ content = "headline"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # 金融顶刊 most-recent 流（含 early view），~34 条池低频高信号
 
 [[source]]
@@ -1410,6 +1415,7 @@ content = "headline"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = false             # 备选：全学科 ~87 条池 AI 占比低，噪音/收益比差
 
 # ---- 顶刊·API/网页通道（2026-07-05；RSS 已死顶刊的兜底，见 journals.py 设计注释。
@@ -1425,6 +1431,7 @@ type = "openalex_journal"
 endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S119757635&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
 content = "abstract"
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # 统计顶刊，官网 bot 墙 → OpenAlex 目录；双月刊+收录时间口径
 
 [[source]]
@@ -1435,6 +1442,7 @@ type = "openalex_journal"
 endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S4394736638&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
 content = "abstract"
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # 统计顶刊，tandfonline 403 → OpenAlex 目录；online-first ~20 篇/月
 
 [[source]]
@@ -1445,5 +1453,6 @@ type = "jmlr_volume"
 endpoint = "https://www.jmlr.org/papers/v27/"
 content = "headline"
 fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # ML 顶刊；官方 RSS 日期仅年份精度 + OpenAlex 收录停在 2021 →
                             # 解析官网卷页（新条目在末尾）。**每年 1 月卷号 +1（v = 年份-1999）**

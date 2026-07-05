@@ -209,3 +209,41 @@ class TestJournalCollectors:
         assert items[1].signals["jmlr_url"].endswith("26-0002.html")
         assert items[1].author == "H. Zou 等"
         assert all(i.kind == "paper" and i.published_at is None for i in items)
+
+
+def test_window_clause_journal_pool(tmp_path):
+    """顶刊池：池源候选在 pool_days 内可入窗（含无日期条目），过期出窗；非池源不受影响。"""
+    from rebas.agents.stages import _window_clause
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    now = datetime.now(timezone.utc)
+
+    def put(source_id, days_ago, with_date=True, url_suffix=""):
+        ts = (now - timedelta(days=days_ago)).isoformat(timespec="seconds")
+        item = RawItem(source_id=source_id, board="academic", kind="paper",
+                       url=f"http://x/{source_id}/{days_ago}{url_suffix}",
+                       url_canonical=f"http://x/{source_id}/{days_ago}{url_suffix}",
+                       title=f"{source_id}-{days_ago}",
+                       published_at=ts if with_date else None)
+        database.insert_item(conn, item)
+        if not with_date:
+            conn.execute("UPDATE raw_items SET fetched_at=? WHERE url_canonical=?",
+                         (ts, item.url_canonical))
+            conn.commit()
+
+    put("jmlr", 10)                                     # 池内（10 天前发表）
+    put("jmlr", 40)                                     # 池过期
+    put("jmlr", 11, with_date=False, url_suffix="-nd")  # 池内（无日期按 fetched_at）
+    put("arxiv-x", 10)                                  # 非池源同龄 → 出窗
+
+    clause, params = _window_clause(load_config(), pool_groups={30: ["jmlr"]})
+    got = {r["title"] for r in conn.execute(
+        f"SELECT title FROM raw_items WHERE {clause}", params)}
+    assert got == {"jmlr-10", "jmlr-11"}   # 有日期+无日期在池，过期与非池源出窗
+
+    # include_pool=False（主编清扫口径）：池内旧条目不在窗，不会被扫
+    clause2, params2 = _window_clause(load_config(), include_pool=False)
+    got2 = {r["title"] for r in conn.execute(
+        f"SELECT title FROM raw_items WHERE {clause2}", params2)}
+    assert "jmlr-10" not in got2
