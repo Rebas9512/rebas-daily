@@ -34,4 +34,9 @@ rsync -az --info=progress2 \
 if [ "$WITH_SECRETS" = 1 ]; then
   ssh "$HOST" "chmod 700 '$DEST/.codex' '$DEST/.secrets'"
 fi
+
+# admin 是常驻服务，代码/配置同步后必须重启，否则新旧版本错位
+# （2026-07-05 实际踩坑：旧进程的 Source 类读不了带新字段的 sources.toml，后台 500）。
+# 管线进程每次冷启动，无需处理；服务不存在（如首次部署前）则跳过。
+ssh "$HOST" "systemctl try-restart rebas-admin 2>/dev/null || true"
 echo "✔ 同步完成 → $HOST:$DEST"

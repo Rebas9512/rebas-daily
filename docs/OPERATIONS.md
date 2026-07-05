@@ -75,6 +75,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 VPS 上的编辑部控制台：备稿状态监控、板块画像（关键词/权重/读者画像）与出刊参数在线编辑、报道点赞点踩（反馈池，供后续选题加权算法）。
 
 - 服务：`systemd` 单元 `rebas-admin`（`scripts/rebas-admin.service`），只听 `127.0.0.1:8787`，零入站端口原则不破。
+- **常驻服务与代码版本错位**：admin 进程不像管线每次冷启动，代码/配置同步后必须重启——`vps_sync.sh` 尾部已自动 `systemctl try-restart rebas-admin`（2026-07-05 踩坑：旧进程的 `Source` 类读不了带新字段的 `sources.toml`，后台整体 500）。
 - 访问（备用，SSH 隧道）：`ssh -L 8787:127.0.0.1:8787 <user>@<vps>`，浏览器开 `http://localhost:8787`。
 - 账号：`rebas admin-seed --email <邮箱>`（交互式输密码，scrypt 入库不存明文）；JWT 有效期 180 天，密钥在 `.secrets/admin_jwt.secret`（换密钥即吊销所有已发 token）。
 - 正式入口（2026-07-05 已挂通）：**https://admin.rebasdaily.com** —— Cloudflare Tunnel（VPS systemd 服务 `cloudflared`，dash 里 tunnel 名 rebas-admin，Public hostname → `http://localhost:8787`，出站连接不开端口）。可选加固：Zero Trust → Access 给该域套邮箱 OTP 策略做边缘拦截。
