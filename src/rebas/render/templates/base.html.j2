@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}rebas_daily{% endblock %}</title>
+<link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+<header class="masthead">
+  <a class="brand" href="index.html">rebas_daily</a>
+  <nav class="topnav">
+    {% block nav %}{% endblock %}
+    <a href="archive.html">归档</a>
+  </nav>
+</header>
+<main>
+{% block content %}{% endblock %}
+</main>
+<footer class="colophon">rebas_daily · 个人日刊 · 管线自动生成，事实请以原始来源为准</footer>
+</body>
+</html>

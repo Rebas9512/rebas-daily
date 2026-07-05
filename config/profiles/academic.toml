@@ -1,0 +1,60 @@
+# 学术板块兴趣画像（初稿 2026-07-03，随时手编调整）
+# keywords 用于 arXiv 体量预筛（代码级，命中标题/摘要即通过，不区分大小写）
+# weight 供主编 agent 打分参考：5 = 核心方向，1 = 边缘
+
+[board]
+id = "academic"
+name = "学术 · AI/ML"
+
+[[interest]]
+name = "LLM / 基础模型"
+weight = 5
+keywords = [
+  "large language model", "LLM", "foundation model", "scaling law",
+  "pretraining", "post-training", "fine-tuning", "RLHF", "DPO",
+  "alignment", "instruction tuning", "in-context learning",
+  "reasoning", "chain-of-thought", "mixture-of-experts", "MoE",
+  "agent", "tool use", "function calling", "retrieval-augmented",
+]
+
+[[interest]]
+name = "世界模型"
+weight = 5
+keywords = [
+  "world model", "video prediction", "model-based RL",
+  "latent dynamics", "JEPA", "dreamer", "genie",
+  "video generation", "interactive environment", "neural simulation",
+]
+
+[[interest]]
+name = "RL / 机器人"
+weight = 4
+keywords = [
+  "reinforcement learning", "robot", "robotic", "manipulation",
+  "locomotion", "embodied", "sim-to-real", "imitation learning",
+  "offline RL", "policy learning", "dexterous", "VLA",
+  "vision-language-action",
+]
+
+[[interest]]
+name = "AI 系统与工程"
+weight = 4
+keywords = [
+  "inference", "serving", "quantization", "distillation",
+  "KV cache", "speculative decoding", "distributed training",
+  "parallelism", "GPU kernel", "compiler", "sparsity", "pruning",
+  "efficient attention", "long context",
+]
+
+[low_priority]
+# 主编降权方向（不预筛掉，但打分时压低）。示例，按需启用：
+# keywords = ["medical imaging", "remote sensing", "recommendation system"]
+keywords = []
+
+[blocklist]
+# 命中即在预筛阶段丢弃。暂空，试运行期间发现噪音再加。
+keywords = []
+
+[reader]
+assumed = "AI/ML 从业者：transformer、注意力、RLHF、扩散模型、微调/推理等通用概念不需要解释"
+explain = "子领域专门概念需要一句白话定位——机器人学/控制论、系统与硬件（如内存带宽瓶颈、量化格式）、特定算法家族、评测基准衡量什么"

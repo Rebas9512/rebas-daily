@@ -1,0 +1,13 @@
+{% extends "base.html.j2" %}
+{% block title %}归档 · rebas_daily{% endblock %}
+{% block content %}
+<h1 class="page-title">归档</h1>
+<ul class="archive">
+  {% for i in issues %}
+  <li>
+    <a class="archive-date" href="issue-{{ i.date }}.html">{{ i.date }}</a>
+    <span class="archive-titles">{{ i.feature_titles | join(' / ') }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% endblock %}

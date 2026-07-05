@@ -1,0 +1,27 @@
+# 凭证——绝对不能提交
+.codex/
+.secrets/
+
+# 运行数据与产物
+data/
+site/
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# 前端（web/data 由 rebas render 从 SQLite 导出）
+web/node_modules/
+web/data/
+web/.astro/
+
+# 品牌资源不入库（README 引线上 URL；VPS 经 rsync 分发，不走 git）
+graphic_resources/
+web/public/logo-mark.svg
+web/public/favicon.svg
+web/public/icons/
+web/public/apple-touch-icon.png
+
+# 构建元数据
+src/rebas.egg-info/

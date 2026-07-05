@@ -1,0 +1,54 @@
+# 科技板块兴趣画像（2026-07-04 板块拆分时新建）
+# 源：AI 公司官方博客、研究机构博客、独立技术博客、日更 newsletter、HN、TechCrunch。
+# 学术板块只留论文，模型发布/产品/产业动态类内容归这里。时效：最新（无沉淀期）。
+
+[board]
+id = "tech"
+name = "科技 · AI 产业"
+
+[[interest]]
+name = "模型与产品发布"
+weight = 5
+keywords = [
+  "release", "launch", "announce", "GPT", "Claude", "Gemini",
+  "Llama", "open source model", "API", "benchmark",
+]
+
+[[interest]]
+name = "AI 公司动态 / 产业格局"
+weight = 4
+keywords = [
+  "OpenAI", "Anthropic", "DeepMind", "Meta AI", "funding",
+  "acquisition", "partnership", "lawsuit", "regulation",
+]
+
+[[interest]]
+name = "工程实践 / 开发者生态"
+weight = 4
+keywords = [
+  "engineering", "infrastructure", "agent", "coding assistant",
+  "developer", "deployment", "cost", "latency",
+]
+
+[[interest]]
+name = "芯片 / 算力"
+weight = 4
+keywords = [
+  "GPU", "TPU", "chip", "Nvidia", "datacenter", "compute",
+  "energy", "HBM",
+]
+
+[[interest]]
+name = "AI 安全 / 政策"
+weight = 3
+keywords = ["safety", "alignment", "policy", "copyright", "governance"]
+
+[low_priority]
+keywords = ["crypto", "web3", "metaverse"]
+
+[blocklist]
+keywords = []
+
+[reader]
+assumed = "AI 从业者与开发者：模型、agent、推理、训练这些 AI 通用概念不需要解释"
+explain = "产业与生态语境要一句定位（公司/产品在生态里的位置、商业模式与政策监管背景）；开发工具链专名首次出现给一句白话；公司/人物的前情故事（此前的产品线、争议、竞争格局）也算背景"

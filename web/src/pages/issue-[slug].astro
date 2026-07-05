@@ -1,0 +1,29 @@
+---
+import Layout from "../layouts/Layout.astro";
+import IssueHome from "../components/IssueHome.astro";
+import { site, issues, type Issue } from "../lib/data";
+
+// 往期首页：issue-{date}.html（保留窗口内的每一期，含最新一期的稳定 URL）
+export function getStaticPaths() {
+  return issues.map((issue) => ({
+    params: { slug: issue.date },
+    props: { issue },
+  }));
+}
+
+interface Props {
+  issue: Issue;
+}
+
+const { issue } = Astro.props;
+const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
+---
+
+<Layout
+  title={`第 ${issue.no} 期 · ${issue.date} — ${site.name}`}
+  description={site.tagline}
+  active="home"
+  issueLabel={issueLabel}
+>
+  <IssueHome issue={issue} />
+</Layout>

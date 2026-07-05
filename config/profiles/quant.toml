@@ -1,0 +1,68 @@
+# 量化交易板块兴趣画像（2026-07-04 新建）
+# 学术（arXiv q-fin，prefilter=false 不做关键词预筛）+ 从业者博客 + 产业新闻混合板块；
+# 论文自动走 48h 沉淀期（kind=paper 全局规则），新闻/博客走最新。
+
+[board]
+id = "quant"
+name = "量化 · Quant/交易"
+
+[[interest]]
+name = "因子与资产定价"
+weight = 5
+keywords = [
+  "factor", "asset pricing", "momentum", "value premium", "carry",
+  "risk premia", "anomaly", "cross-section", "alpha",
+]
+
+[[interest]]
+name = "市场微观结构与执行"
+weight = 5
+keywords = [
+  "market microstructure", "limit order book", "execution",
+  "market making", "liquidity", "high-frequency", "transaction cost",
+  "price impact",
+]
+
+[[interest]]
+name = "机器学习与交易"
+weight = 5
+keywords = [
+  "machine learning", "deep learning", "reinforcement learning",
+  "LLM", "neural", "forecasting", "signal", "backtest", "overfitting",
+]
+
+[[interest]]
+name = "组合构建与风险"
+weight = 4
+keywords = [
+  "portfolio optimization", "risk model", "covariance", "drawdown",
+  "position sizing", "hedging", "tail risk", "leverage",
+]
+
+[[interest]]
+name = "行业动态（基金/人事/监管）"
+weight = 4
+keywords = [
+  "hedge fund", "quant fund", "systematic", "Citadel", "Renaissance",
+  "Two Sigma", "Jane Street", "Millennium", "prop trading", "SEC",
+]
+
+[[interest]]
+name = "衍生品与波动率"
+weight = 3
+keywords = [
+  "option", "volatility", "derivatives", "term structure", "VIX",
+  "implied", "skew",
+]
+
+[low_priority]
+# 加密量化降权不屏蔽（用户 2026-07-04 确认）；个股荐股评论类噪音降权
+keywords = ["crypto", "bitcoin", "ethereum", "stock pick", "top stocks"]
+
+[blocklist]
+keywords = []
+
+[reader]
+# 读者画像（背景调查阶段用）：assumed=已掌握不解释；explain=需要铺垫的方向
+assumed = "懂技术与机器学习，但不是金融/交易从业者"
+explain = "金融与量化概念一律按聪明的外行铺垫（因子模型、夏普比率、alpha、市场微观结构、波动率曲面、希腊字母等）：它衡量什么、行业拿它做什么、这篇为什么关心它；行业人物与机构的来历战绩（对冲基金的江湖地位、明星经理的历史战役）这类背景故事同样要给"

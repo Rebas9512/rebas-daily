@@ -1,0 +1,50 @@
+---
+import "../styles/global.css";
+import Masthead from "../components/Masthead.astro";
+import Footer from "../components/Footer.astro";
+
+interface Props {
+  title: string;
+  description?: string;
+  /** 高亮 tab：board id | "home" | "archive" */
+  active: string;
+  /** 刊头右上的期次信息 */
+  issueLabel?: string;
+}
+
+const { title, description, active, issueLabel } = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="generator" content={Astro.generator} />
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="theme-color" content="#f1f1f0" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#232322" media="(prefers-color-scheme: dark)" />
+    <script is:inline>
+      // PWA 渐进增强：仅 https 下注册（file:// 直开与老浏览器自动跳过），页面渲染不依赖 JS
+      if ("serviceWorker" in navigator && location.protocol === "https:")
+        navigator.serviceWorker.register("sw.js");
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600&family=Noto+Sans+SC:wght@400;500&display=swap"
+    />
+    <title>{title}</title>
+  </head>
+  <body>
+    <Masthead active={active} issueLabel={issueLabel} />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+  </body>
+</html>

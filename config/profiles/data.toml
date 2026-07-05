@@ -1,0 +1,56 @@
+# 数据科学板块兴趣画像（2026-07-04 新建）
+# 定位=工程实践层，与学术(AI/ML 论文)/科技(AI 产业)/开源(热榜)错位：
+# 公司数据博客 + 统计方法 + 实验因果 + 数据工具 + 可视化。
+# arXiv stat.ME/AP 论文自动走 48h 沉淀，博客/文章最新。
+
+[board]
+id = "data"
+name = "数据 · Data/工程"
+
+[[interest]]
+name = "数据工程与基础设施"
+weight = 5
+keywords = [
+  "data engineering", "pipeline", "warehouse", "lakehouse", "DuckDB",
+  "Polars", "Spark", "streaming", "orchestration", "dbt", "SQL",
+]
+
+[[interest]]
+name = "统计方法与因果推断"
+weight = 5
+keywords = [
+  "causal inference", "A/B test", "experiment", "Bayesian",
+  "regression", "bootstrap", "hypothesis", "inference", "estimation",
+]
+
+[[interest]]
+name = "ML 生产化 / MLOps"
+weight = 4
+keywords = [
+  "MLOps", "feature store", "model serving", "monitoring", "drift",
+  "recommendation", "embedding", "production ML",
+]
+
+[[interest]]
+name = "分析实践与决策"
+weight = 4
+keywords = [
+  "analytics", "metrics", "product analytics", "decision",
+  "measurement", "attribution",
+]
+
+[[interest]]
+name = "可视化与叙事"
+weight = 3
+keywords = ["visualization", "chart", "dashboard", "D3", "storytelling"]
+
+[low_priority]
+# 职业建议/课程营销类噪音降权；纯 LLM 产品新闻由科技板块覆盖
+keywords = ["career", "interview", "bootcamp", "certification", "course"]
+
+[blocklist]
+keywords = []
+
+[reader]
+assumed = "懂工程与基础统计（均值方差、回归、A/B 测试这个层面），日常和数据打交道"
+explain = "进阶统计与因果推断概念（MCMC、收敛诊断、贝叶斯工作流、工具变量、异质效应等）要用白话解释它是什么、解决什么问题；数据基础设施术语（列存、lakehouse、语义层等）首次出现给一句定位"

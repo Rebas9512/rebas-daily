@@ -1,0 +1,62 @@
+---
+const year = new Date().getFullYear();
+---
+
+<footer class="footer">
+  <div class="container">
+    <p class="footer__disclaimer">
+      本刊内容由 AI 管线自动采集、编选、核查与撰写，每日自动发布；虽有交叉印证与审校环节，仍可能存在错误、遗漏或滞后，不构成投资、法律或其他专业建议，引用请核对原始来源。如有疑问、勘误或权利相关事宜，请联系
+      <a class="footer__mail" href="mailto:weiyixin9512@gmail.com">weiyixin9512@gmail.com</a>。
+    </p>
+    <div class="footer__row">
+      <span class="mono footer__text">© {year} REBAS DAILY — PERSONAL AI DAILY</span>
+      <a class="mono footer__text footer__link" href="archive.html">归档 ARCHIVE ↗</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    background: var(--deep);
+    margin-top: 56px;
+  }
+
+  .footer__disclaimer {
+    color: var(--deep-text);
+    font-size: 12px;
+    line-height: 1.9;
+    letter-spacing: 0.04em;
+    padding-top: 26px;
+    margin: 0;
+    max-width: 720px;
+  }
+
+  .footer__mail {
+    color: var(--deep-text);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .footer__mail:hover {
+    color: #fff;
+  }
+
+  .footer__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-top: 18px;
+    padding-bottom: 34px;
+  }
+
+  .footer__text {
+    color: var(--deep-text);
+    letter-spacing: 0.1em;
+  }
+
+  .footer__link:hover {
+    color: #fff;
+  }
+</style>

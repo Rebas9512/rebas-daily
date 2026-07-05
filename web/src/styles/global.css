@@ -1,0 +1,130 @@
+/* 设计 token —— 与 Pencil 原型的设计变量 1:1 对应（2026-07-04 定稿，灰调极简） */
+:root {
+  --bg: #f1f1f0;
+  --surface: #fafaf9;
+  --ink: #3a3a3a;
+  --body: #4a4a4a;
+  /* secondary/muted 对比度按 WCAG AA 调过（2026-07-04 审查）：
+     muted 承载眉题/元信息等真实内容，10px 小字需要 ≥4.5:1 */
+  --secondary: #5c5c5c;
+  --muted: #6f6f6f;
+  --hairline: #dbdbda;
+  --soft: #e3e3e2;
+  --deep: #2e2e2e;
+  --deep-text: #a8a8a7;
+  --accent: #e13c25;
+
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+  --sans: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #232322;
+    --surface: #2a2a29;
+    --ink: #d6d6d4;
+    --body: #bfbfbd;
+    --secondary: #a4a4a2;
+    --muted: #8e8e8c;
+    --hairline: #3d3d3c;
+    --soft: #343433;
+    --deep: #1c1c1b;
+    --deep-text: #8e8e8c;
+    --accent: #e8563f;
+  }
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--body);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+img {
+  max-width: 100%;
+}
+
+.container {
+  max-width: 1040px;
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+.container--narrow {
+  max-width: 768px;
+}
+
+/* 等宽小字（眉题、元信息）—— 设计里的 Geist Mono 层 */
+.mono {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.mono--link {
+  color: var(--secondary);
+  transition: color 0.15s;
+}
+
+.mono--link:hover {
+  color: var(--ink);
+}
+
+/* 板块分隔：1px 墨线 + 眉题（报纸式节奏） */
+.rule {
+  border: 0;
+  border-top: 1px solid var(--ink);
+}
+
+.hairline {
+  border: 0;
+  border-top: 1px solid var(--hairline);
+}
+
+/* 标题统一衬线 */
+h1,
+h2,
+h3,
+.serif {
+  font-family: var(--serif);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+::selection {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 视觉隐藏但读屏可达（h1 语义等） */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

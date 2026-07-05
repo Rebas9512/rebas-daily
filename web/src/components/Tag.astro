@@ -1,0 +1,43 @@
+---
+import type { Kind } from "../lib/data";
+
+interface Props {
+  kind: Kind;
+}
+
+const { kind } = Astro.props;
+const labels: Record<Kind, string> = {
+  paper: "PAPER",
+  news: "NEWS",
+  repo: "REPO",
+};
+---
+
+<span class:list={["tag", `tag--${kind}`]}>{labels[kind]}</span>
+
+<style>
+  .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* 论文 = 灰底实心；新闻 = 描边；代码 = 描边 + 灰字 */
+  .tag--paper {
+    background: var(--soft);
+    color: var(--ink);
+  }
+
+  .tag--news {
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+  }
+
+  .tag--repo {
+    border: 1px solid var(--hairline);
+    color: var(--muted);
+  }
+</style>

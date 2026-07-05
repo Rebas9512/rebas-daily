@@ -1,0 +1,934 @@
+# rebas_daily 信息源清单（实测于 2026-07-03，详见 vault: 02 信息源规划.md）
+#
+# type    : 采集器类型  rss | arxiv_rss | gnews_rss | hf_papers | hf_models | hn_algolia | gh_trending | reddit_oauth
+#           - rss:        标准 RSS/Atom（解析前先 lstrip，Dezeen 等源开头有空白）
+#           - arxiv_rss:  arXiv 日更 feed（跳过 replace 公告、论文 ID 规范化、预筛前置）
+#           - gnews_rss:  Google News RSS 兜底（链接是跳转 URL，入库前经 batchexecute 解析真实地址）
+#           - hf_papers:  HF Daily Papers JSON API（带 upvotes/评论数/缩略图信号）
+#           - hf_models:  HF Trending Models JSON API（下载量/点赞信号）
+#           - hn_algolia: HN Algolia / Lobsters JSON API（带 points/评论数信号）
+#           - gh_trending: GitHub Trending 页面解析
+# content : 源自身提供的内容深度  fulltext | abstract | headline
+#           headline 源在条目入围后由管线 lazy fetch 原文全文（trafilatura）
+# prefilter = true : 体量大，入库前先按板块画像做关键词预筛（代码级，零成本）
+# paywall = true   : 全文在付费墙后，只能拿到标题+导语，靠多源聚类补充
+
+# ============ 学术板块（MVP 启用） ============
+
+[[source]]
+id = "arxiv-ai-combined"
+board = "academic"
+name = "arXiv (cs.AI+cs.LG+cs.CL+cs.CV+stat.ML)"
+type = "arxiv_rss"
+endpoint = "https://rss.arxiv.org/rss/cs.AI+cs.LG+cs.CL+cs.CV+stat.ML"
+content = "abstract"
+fetch_interval_hours = 12   # arXiv 每日更新一批，RSS 只有当天窗口，漏抓可用 API 按日期回填
+prefilter = true            # 实测 ~770 篇/天，必须预筛
+enabled = true
+
+[[source]]
+id = "hf-daily-papers"
+board = "academic"
+name = "Hugging Face Daily Papers"
+type = "hf_papers"
+endpoint = "https://huggingface.co/api/daily_papers"
+content = "abstract"
+fetch_interval_hours = 6
+enabled = true              # ~50 篇/天，社区精选+热度信号，论文类核心信源
+
+[[source]]
+id = "openai-news"
+board = "tech"
+name = "OpenAI News"
+type = "rss"
+endpoint = "https://openai.com/news/rss.xml"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true
+
+[[source]]
+id = "anthropic-gnews"
+board = "tech"
+name = "Anthropic (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:anthropic.com&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true              # Anthropic 无官方 RSS，Google News 兜底
+
+[[source]]
+id = "deepmind-blog"
+board = "tech"
+name = "Google DeepMind Blog"
+type = "rss"
+endpoint = "https://deepmind.google/blog/rss.xml"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true
+
+[[source]]
+id = "meta-ai-gnews"
+board = "tech"
+name = "Meta AI (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:ai.meta.com&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # ai.meta.com 官方 RSS 已失效（400）
+
+[[source]]
+id = "google-research"
+board = "tech"
+name = "Google Research Blog"
+type = "rss"
+endpoint = "https://research.google/blog/rss/"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "ms-research"
+board = "tech"
+name = "Microsoft Research Blog"
+type = "rss"
+endpoint = "https://www.microsoft.com/en-us/research/feed/"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "bair-blog"
+board = "tech"
+name = "Berkeley BAIR Blog"
+type = "rss"
+endpoint = "https://bair.berkeley.edu/blog/feed.xml"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "mit-news-ai"
+board = "tech"
+name = "MIT News · AI"
+type = "rss"
+endpoint = "https://news.mit.edu/rss/topic/artificial-intelligence2"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "hf-blog"
+board = "tech"
+name = "Hugging Face Blog"
+type = "rss"
+endpoint = "https://huggingface.co/blog/feed.xml"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "simonwillison"
+board = "tech"
+name = "Simon Willison's Weblog"
+type = "rss"
+endpoint = "https://simonwillison.net/atom/everything/"
+content = "fulltext"
+fetch_interval_hours = 4
+enabled = true              # LLM 工程/应用动向，更新快信号好
+
+[[source]]
+id = "import-ai"
+board = "tech"
+name = "Import AI (Jack Clark)"
+type = "rss"
+endpoint = "https://importai.substack.com/feed"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true              # 周更，深度综述
+
+[[source]]
+id = "interconnects"
+board = "tech"
+name = "Interconnects (Nathan Lambert)"
+type = "rss"
+endpoint = "https://www.interconnects.ai/feed"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "raschka-magazine"
+board = "tech"
+name = "Ahead of AI (Sebastian Raschka)"
+type = "rss"
+endpoint = "https://magazine.sebastianraschka.com/feed"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "hn-frontpage"
+board = "tech"
+name = "Hacker News 高分帖（24h+ 滚动窗口）"
+type = "hn_algolia"
+endpoint = "https://hn.algolia.com/api/v1/search_by_date?tags=story&numericFilters=points%3E150&hitsPerPage=50"
+content = "headline"
+fetch_interval_hours = 11   # 按时间+分数查询，50 条窗口实测覆盖 ~44h，不依赖抓取频率
+prefilter = true            # 全类目，按画像关键词过滤 AI/ML 相关
+enabled = true
+
+[[source]]
+id = "gh-trending-daily"
+board = "repos"
+name = "GitHub Trending（全语言·日榜）"
+type = "gh_trending"
+endpoint = "https://github.com/trending?since=daily"
+content = "headline"        # 仓库名+描述+今日星标数；实测 HTML 结构可稳定解析（2026-07-03）
+fetch_interval_hours = 12
+enabled = true              # 同一仓库连续在榜多日只入库一次（N 天内去重）
+
+[[source]]
+id = "gh-trending-python"
+board = "repos"
+name = "GitHub Trending（Python·日榜）"
+type = "gh_trending"
+endpoint = "https://github.com/trending/python?since=daily"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true
+
+# —— 第二轮补测新增（2026-07-03）——
+
+[[source]]
+id = "hf-models-trending"
+board = "repos"
+name = "HF Trending Models（模型榜单）"
+type = "hf_models"
+endpoint = "https://huggingface.co/api/models?sort=trendingScore&limit=20"
+content = "headline"        # 模型 id + 下载量/点赞信号；开源模型发布动态
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "techcrunch-ai"
+board = "tech"
+name = "TechCrunch · AI"
+type = "rss"
+endpoint = "https://techcrunch.com/category/artificial-intelligence/feed/"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true              # AI 产业新闻（融资/公司动态），补论文源的盲区
+
+[[source]]
+id = "bensbites"
+board = "tech"
+name = "Ben's Bites（日更 AI newsletter）"
+type = "rss"
+endpoint = "https://www.bensbites.com/feed"
+content = "fulltext"        # 一期一条（整期全文 ~2 万字符），做当日要闻交叉印证
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "tldr-ai"
+board = "tech"
+name = "TLDR AI（日更 newsletter）"
+type = "rss"
+endpoint = "https://tldr.tech/api/rss/ai"
+content = "headline"        # 一期一条（仅标题，需 lazy fetch 期页），交叉印证用
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "lobsters-hottest"
+board = "tech"
+name = "Lobsters 热榜"
+type = "hn_algolia"         # JSON 带 score，结构同类，采集器可复用逻辑
+endpoint = "https://lobste.rs/hottest.json"
+content = "headline"
+fetch_interval_hours = 6
+enabled = false             # 可用，但与 HN 高度重叠，暂不启用
+
+[[source]]
+id = "producthunt"
+board = "tech"
+name = "Product Hunt 日榜"
+type = "rss"
+endpoint = "https://www.producthunt.com/feed"
+content = "headline"
+fetch_interval_hours = 12
+enabled = false             # 可用，但条目偏消费产品，噪音大，按需启用
+
+[[source]]
+id = "reddit-ml"
+board = "tech"
+name = "r/MachineLearning 日榜"
+type = "reddit_oauth"
+endpoint = "https://oauth.reddit.com/r/MachineLearning/top?t=day&limit=25"
+content = "headline"
+fetch_interval_hours = 6
+enabled = false             # 匿名抓取被封(403)；官方 API 2025-11 起需预审批（约 2~4 周），获批+凭证就位后启用，见 02 文档 §8
+
+[[source]]
+id = "reddit-localllama"
+board = "repos"
+name = "r/LocalLLaMA 日榜"
+type = "reddit_oauth"
+endpoint = "https://oauth.reddit.com/r/LocalLLaMA/top?t=day&limit=25"
+content = "headline"
+fetch_interval_hours = 6
+enabled = false             # 同上，待 Reddit 凭证就位
+
+# X/Twitter：官方 API 免费档读取额度不可用，付费档不划算；
+# 登录态抓取违反 X ToS、有账号被限流/封禁风险——如确要接入，
+# 务必用专用小号（勿用主号），Phase 2 试验项，详见 02 文档「认证源接入」。
+
+# ============ 财经/股票板块（Phase 2 启用） ============
+
+[[source]]
+id = "cnbc-topnews"
+board = "finance"
+name = "CNBC Top News"
+type = "rss"
+endpoint = "https://www.cnbc.com/id/100003114/device/rss/rss.html"
+content = "headline"
+fetch_interval_hours = 2
+enabled = true
+
+[[source]]
+id = "marketwatch-top"
+board = "finance"
+name = "MarketWatch Top Stories"
+type = "rss"
+endpoint = "https://feeds.content.dowjones.io/public/rss/mw_topstories"
+content = "headline"
+fetch_interval_hours = 2
+enabled = true
+
+[[source]]
+id = "wsj-markets"
+board = "finance"
+name = "WSJ Markets"
+type = "rss"
+endpoint = "https://feeds.content.dowjones.io/public/rss/RSSMarketsMain"
+content = "headline"
+fetch_interval_hours = 4
+paywall = true
+enabled = true
+
+[[source]]
+id = "ft-home"
+board = "finance"
+name = "Financial Times"
+type = "rss"
+endpoint = "https://www.ft.com/rss/home"
+content = "headline"
+fetch_interval_hours = 4
+paywall = true
+enabled = true             # 首页 feed 仅 ~9 条，启用时可加 /companies /markets 等分区 feed
+
+[[source]]
+id = "economist-finance"
+board = "finance"
+name = "The Economist · Finance"
+type = "rss"
+endpoint = "https://www.economist.com/finance-and-economics/rss.xml"
+content = "headline"
+fetch_interval_hours = 12
+paywall = true
+enabled = true
+
+[[source]]
+id = "yahoo-finance"
+board = "finance"
+name = "Yahoo Finance"
+type = "rss"
+endpoint = "https://finance.yahoo.com/news/rssindex"
+content = "headline"
+fetch_interval_hours = 2
+enabled = true
+
+[[source]]
+id = "fed-press"
+board = "finance"
+name = "美联储新闻稿（官方）"
+type = "rss"
+endpoint = "https://www.federalreserve.gov/feeds/press_all.xml"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "gnews-reuters-mkt"
+board = "finance"
+name = "Reuters Markets (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:reuters.com+markets&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true             # Reuters 公共 RSS 已下线，Google News 兜底
+
+[[source]]
+id = "investing-news"
+board = "finance"
+name = "Investing.com News"
+type = "rss"
+endpoint = "https://www.investing.com/rss/news.rss"
+content = "headline"
+fetch_interval_hours = 4
+enabled = false             # 第二轮补测可用（2026-07-03）
+
+[[source]]
+id = "seekingalpha-mc"
+board = "finance"
+name = "Seeking Alpha Market Currents"
+type = "rss"
+endpoint = "https://seekingalpha.com/market_currents.xml"
+content = "headline"
+fetch_interval_hours = 4
+enabled = false             # 第二轮补测可用（2026-07-03）
+
+[[source]]
+id = "bi-markets"
+board = "finance"
+name = "Business Insider Markets"
+type = "rss"
+endpoint = "https://markets.businessinsider.com/rss/news"
+content = "headline"
+fetch_interval_hours = 6
+enabled = false             # 第二轮补测可用（2026-07-03）
+
+# 已测但不收：MarketWatch mw_marketpulse（最新条目停在 2025 年，feed 已停更）
+# 中文财经源（华尔街见闻/财联社电报/财新等）无公共 RSS，
+# 如需接入待 Phase 2 自建 RSSHub（美股为主后降为可选）。
+
+# ============ 艺术/时尚/设计板块（Phase 2 启用） ============
+
+[[source]]
+id = "dezeen"
+board = "art"
+name = "Dezeen"
+type = "rss"
+endpoint = "https://www.dezeen.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true             # 注意：feed 开头有空白字符，解析前 lstrip
+
+[[source]]
+id = "designboom"
+board = "art"
+name = "designboom"
+type = "rss"
+endpoint = "https://www.designboom.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "colossal"
+board = "art"
+name = "Colossal"
+type = "rss"
+endpoint = "https://www.thisiscolossal.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "hypebeast"
+board = "art"
+name = "Hypebeast"
+type = "rss"
+endpoint = "https://hypebeast.com/feed"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = false
+
+[[source]]
+id = "hyperallergic"
+board = "art"
+name = "Hyperallergic"
+type = "rss"
+endpoint = "https://hyperallergic.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "wallpaper"
+board = "art"
+name = "Wallpaper*"
+type = "rss"
+endpoint = "https://www.wallpaper.com/feeds/rss"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "artnews"
+board = "art"
+name = "ARTnews"
+type = "rss"
+endpoint = "https://www.artnews.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "artnet-news"
+board = "art"
+name = "Artnet News"
+type = "rss"
+endpoint = "https://news.artnet.com/feed"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "artnewspaper"
+board = "art"
+name = "The Art Newspaper"
+type = "rss"
+endpoint = "https://www.theartnewspaper.com/rss.xml"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "bof"
+board = "art"
+name = "Business of Fashion"
+type = "rss"
+endpoint = "https://www.businessoffashion.com/arc/outboundfeeds/rss/?outputType=xml"
+content = "headline"
+fetch_interval_hours = 12
+paywall = true
+enabled = false
+
+[[source]]
+id = "voguebiz-gnews"
+board = "art"
+name = "Vogue Business (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:voguebusiness.com&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 12
+enabled = false             # 官方 RSS 404，Google News 兜底
+
+[[source]]
+id = "itsnicethat-gnews"
+board = "art"
+name = "It's Nice That (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:itsnicethat.com&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true             # 官方 RSS 404，Google News 兜底
+
+[[source]]
+id = "core77"
+board = "art"
+name = "Core77"
+type = "rss"
+endpoint = "https://feeds.feedburner.com/core77/blog"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 官方站内 RSS 404，FeedBurner 镜像可用
+
+[[source]]
+id = "creativeboom"
+board = "art"
+name = "Creative Boom"
+type = "rss"
+endpoint = "https://www.creativeboom.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 平面设计主力源，第二轮补测可用（1.4 万字符全文带图）
+
+# 已测不可用（2026-07-03）：Brand New(500)、Frieze(403)、e-flux(404)、
+# The Batch(404)、VentureBeat AI(feed 停更于 2026-05)。alphaXiv API 三次探测均 404。
+
+# ============================================================
+# 量化板块（2026-07-04 两轮 29 端点实测；论文走 48h 沉淀，新闻/博客最新）
+# ============================================================
+
+[[source]]
+id = "arxiv-qfin"
+board = "quant"
+name = "arXiv q-fin (TR+PM+ST+CP)"
+type = "arxiv_rss"
+endpoint = "https://rss.arxiv.org/rss/q-fin.TR+q-fin.PM+q-fin.ST+q-fin.CP"
+content = "abstract"
+fetch_interval_hours = 12
+prefilter = false           # ~20-40 篇/天体量小，不预筛直通 LLM 粗筛
+enabled = true
+
+[[source]]
+id = "quantocracy"
+board = "quant"
+name = "Quantocracy（量化博客聚合）"
+type = "rss"
+endpoint = "https://quantocracy.com/feed/"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # 聚合器，条目链向各从业者博客原文
+
+[[source]]
+id = "quantpedia"
+board = "quant"
+name = "Quantpedia Blog"
+type = "rss"
+endpoint = "https://quantpedia.com/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true              # 策略研究摘要；服务器偶发 502，重试即可
+
+[[source]]
+id = "alpha-architect"
+board = "quant"
+name = "Alpha Architect"
+type = "rss"
+endpoint = "https://alphaarchitect.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "robot-wealth"
+board = "quant"
+name = "Robot Wealth"
+type = "rss"
+endpoint = "https://robotwealth.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # 低频（月更级）
+
+[[source]]
+id = "twosigma-articles"
+board = "quant"
+name = "Two Sigma Articles"
+type = "rss"
+endpoint = "https://www.twosigma.com/articles/feed/"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "cxo-advisory"
+board = "quant"
+name = "CXO Advisory"
+type = "rss"
+endpoint = "https://www.cxoadvisory.com/feed/"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # 研究摘要 teaser，正文付费墙
+
+[[source]]
+id = "ft-alphaville"
+board = "quant"
+name = "FT Alphaville"
+type = "rss"
+endpoint = "https://www.ft.com/alphaville?format=rss"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true              # 市场评论；部分付费墙
+
+[[source]]
+id = "risknet"
+board = "quant"
+name = "Risk.net"
+type = "rss"
+endpoint = "https://www.risk.net/feeds/rss"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # 量化/风控产业新闻，付费墙 headline
+
+[[source]]
+id = "hedgeweek"
+board = "quant"
+name = "Hedgeweek"
+type = "rss"
+endpoint = "https://www.hedgeweek.com/feed/"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # 对冲基金产业新闻
+
+[[source]]
+id = "gnews-quant"
+board = "quant"
+name = "量化产业新闻 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22quantitative%20trading%22%20OR%20%22quant%20fund%22%20OR%20%22systematic%20trading%22&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # 兜底流：基金/人事/监管新闻
+
+# ---- 备选（实测活着但低频/边缘，需要再开）----
+
+[[source]]
+id = "tandf-quant-finance"
+board = "quant"
+name = "Quantitative Finance 期刊"
+type = "rss"
+endpoint = "https://www.tandfonline.com/feed/rss/rquf20"
+content = "headline"
+fetch_interval_hours = 48
+enabled = false             # 按期更新（数月节奏），arXiv 已覆盖预印本
+
+[[source]]
+id = "quantstart"
+board = "quant"
+name = "QuantStart"
+type = "rss"
+endpoint = "https://www.quantstart.com/feed/"
+content = "abstract"
+fetch_interval_hours = 48
+enabled = false             # 教程向，非新闻流
+
+[[source]]
+id = "kinlay"
+board = "quant"
+name = "Quantitative Research and Trading (Kinlay)"
+type = "rss"
+endpoint = "https://jonathankinlay.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 48
+enabled = false             # 2026-05 后未更
+
+[[source]]
+id = "numerai-forum"
+board = "quant"
+name = "Numerai Forum"
+type = "rss"
+endpoint = "https://forum.numer.ai/latest.rss"
+content = "headline"
+fetch_interval_hours = 24
+enabled = false             # 社区低频
+
+[[source]]
+id = "epchan"
+board = "quant"
+name = "E.P. Chan Blog"
+type = "rss"
+endpoint = "https://epchan.blogspot.com/feeds/posts/default?alt=rss"
+content = "fulltext"
+fetch_interval_hours = 48
+enabled = false             # 2025-11 后停更
+
+[[source]]
+id = "janestreet-blog"
+board = "quant"
+name = "Jane Street Tech Blog"
+type = "rss"
+endpoint = "https://blog.janestreet.com/feed.xml"
+content = "fulltext"
+fetch_interval_hours = 48
+enabled = false             # 偏工程（OCaml），量化相关性边缘
+
+# ============================================================
+# 数据科学板块（2026-07-04 两轮 32 端点实测；定位=工程实践层，
+# 与学术(论文)/科技(AI产业)/开源(热榜)错位：公司数据博客+统计方法+数据工具）
+# ============================================================
+
+[[source]]
+id = "arxiv-stats"
+board = "data"
+name = "arXiv stat.ME+stat.AP"
+type = "arxiv_rss"
+endpoint = "https://rss.arxiv.org/rss/stat.ME+stat.AP"
+content = "abstract"
+fetch_interval_hours = 12
+prefilter = false           # ~40 篇/天，直通 LLM 粗筛
+enabled = true
+
+[[source]]
+id = "towardsdatascience"
+board = "data"
+name = "Towards Data Science"
+type = "rss"
+endpoint = "https://towardsdatascience.com/feed"
+content = "abstract"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "kdnuggets"
+board = "data"
+name = "KDnuggets"
+type = "rss"
+endpoint = "https://www.kdnuggets.com/feed"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "r-bloggers"
+board = "data"
+name = "R-bloggers（R 社区聚合）"
+type = "rss"
+endpoint = "https://www.r-bloggers.com/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true              # 量大杂，靠粗筛压噪
+
+[[source]]
+id = "gelman"
+board = "data"
+name = "Statistical Modeling (Gelman)"
+type = "rss"
+endpoint = "https://statmodeling.stat.columbia.edu/feed/"
+content = "fulltext"
+fetch_interval_hours = 8
+enabled = true              # 统计方法论主力，日更且高质
+
+[[source]]
+id = "flowingdata"
+board = "data"
+name = "FlowingData"
+type = "rss"
+endpoint = "https://flowingdata.com/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true              # 可视化
+
+[[source]]
+id = "netflix-tech"
+board = "data"
+name = "Netflix TechBlog"
+type = "rss"
+endpoint = "https://netflixtechblog.com/feed"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "meta-eng"
+board = "data"
+name = "Meta Engineering"
+type = "rss"
+endpoint = "https://engineering.fb.com/feed/"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "airbnb-eng"
+board = "data"
+name = "Airbnb Engineering"
+type = "rss"
+endpoint = "https://medium.com/feed/airbnb-engineering"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "spotify-eng"
+board = "data"
+name = "Spotify Engineering"
+type = "rss"
+endpoint = "https://engineering.atspotify.com/feed"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "pinterest-eng"
+board = "data"
+name = "Pinterest Engineering"
+type = "rss"
+endpoint = "https://medium.com/feed/pinterest-engineering"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "eugeneyan"
+board = "data"
+name = "Eugene Yan"
+type = "rss"
+endpoint = "https://eugeneyan.com/rss/"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "vickiboykis"
+board = "data"
+name = "Vicki Boykis"
+type = "rss"
+endpoint = "https://vickiboykis.com/index.xml"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "duckdb-blog"
+board = "data"
+name = "DuckDB Blog"
+type = "rss"
+endpoint = "https://duckdb.org/feed.xml"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "polars-blog"
+board = "data"
+name = "Polars Blog"
+type = "rss"
+endpoint = "https://pola.rs/rss.xml"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+[[source]]
+id = "dbt-blog"
+board = "data"
+name = "dbt Blog"
+type = "rss"
+endpoint = "https://www.getdbt.com/blog/rss.xml"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true              # vendor 内容偏营销，靠粗筛压
+
+[[source]]
+id = "dataengweekly"
+board = "data"
+name = "Data Engineering Weekly"
+type = "rss"
+endpoint = "https://www.dataengineeringweekly.com/feed"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true              # 周更 newsletter，一期一条供交叉印证
+
+[[source]]
+id = "seattledataguy"
+board = "data"
+name = "SeattleDataGuy"
+type = "rss"
+endpoint = "https://seattledataguy.substack.com/feed"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true
+
+# ---- 备选（活着但停更/低频）----
+
+[[source]]
+id = "chiphuyen"
+board = "data"
+name = "Chip Huyen"
+type = "rss"
+endpoint = "https://huyenchip.com/feed.xml"
+content = "fulltext"
+fetch_interval_hours = 48
+enabled = false             # 2025-01 后未更
+
+[[source]]
+id = "locallyoptimistic"
+board = "data"
+name = "Locally Optimistic"
+type = "rss"
+endpoint = "https://locallyoptimistic.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 48
+enabled = false             # 2025-08 后未更

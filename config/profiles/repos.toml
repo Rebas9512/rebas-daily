@@ -1,0 +1,49 @@
+# 开源板块兴趣画像（2026-07-04 板块拆分时新建）
+# 内容源全部是榜单类（GitHub Trending / HF Trending Models），自带质量信号
+# 直通 LLM 粗筛；keywords 不做预筛，仅供主编打分参考。时效：最新（无沉淀期）。
+
+[board]
+id = "repos"
+name = "开源 · GitHub/模型热榜"
+
+[[interest]]
+name = "LLM 工具链 / agent 框架"
+weight = 5
+keywords = [
+  "LLM", "agent", "RAG", "prompt", "inference", "serving",
+  "fine-tuning", "quantization", "MCP", "tool use",
+]
+
+[[interest]]
+name = "推理部署 / 本地运行"
+weight = 5
+keywords = [
+  "llama.cpp", "vLLM", "GGUF", "local", "edge", "WebGPU",
+  "CUDA", "Metal", "ONNX", "runtime",
+]
+
+[[interest]]
+name = "开发者工具 / 基础设施"
+weight = 4
+keywords = [
+  "CLI", "terminal", "editor", "database", "compiler",
+  "build", "testing", "observability",
+]
+
+[[interest]]
+name = "多模态 / 机器人 / 世界模型"
+weight = 4
+keywords = [
+  "diffusion", "vision", "speech", "robotics", "simulation",
+  "world model", "3D",
+]
+
+[low_priority]
+keywords = ["awesome list", "tutorial", "roadmap", "interview"]
+
+[blocklist]
+keywords = []
+
+[reader]
+assumed = "日常写代码的开发者：git、API、容器、主流语言与前后端生态不需要解释"
+explain = "项目所处的细分生态位要交代清楚（它替代或依附什么工具链、和同类比差异在哪）；领域专属协议/框架（如 MCP、LSP、CRDT）首次出现给一句白话"

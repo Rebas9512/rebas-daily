@@ -1,0 +1,46 @@
+# 艺术/时尚/设计板块兴趣画像（初稿 2026-07-03，Phase 2 启用板块时细化）
+
+[board]
+id = "art"
+name = "艺术 · 设计"
+
+# 侧重（用户 2026-07-03 确认）：产品/工业设计、当代艺术/艺术市场、
+# 建筑/空间、平面设计。时尚产业未选 → 降为低权重（源保留不删）。
+
+[[interest]]
+name = "产品 / 工业设计"
+weight = 5
+keywords = ["industrial design", "product design", "furniture", "material"]
+
+[[interest]]
+name = "当代艺术 / 艺术市场"
+weight = 5
+keywords = ["exhibition", "auction", "biennale", "contemporary art", "museum"]
+
+[[interest]]
+name = "建筑 / 空间"
+weight = 4
+keywords = ["architecture", "interior", "urban design", "pavilion"]
+
+[[interest]]
+name = "平面设计"
+weight = 4
+keywords = ["graphic design", "branding", "typography", "visual identity"]
+# 平面设计主力源是 It's Nice That（GNews 兜底）；Phase 2 启用时
+# 候选补测：Creative Boom、Brand New (underconsideration.com)
+
+[[interest]]
+name = "时尚产业"
+weight = 2
+keywords = ["fashion", "runway", "brand collaboration"]
+
+[low_priority]
+keywords = []
+
+[blocklist]
+keywords = []
+
+[reader]
+# 切入角度=背景故事：不是解释技术术语，而是给作品/人物/事件的来历和纵深
+assumed = "懂技术、对设计与艺术有兴趣，但不是艺术/设计圈内人"
+explain = "切入角度是背景故事：作品与设计师/机构/流派的来历与地位（一件拍品的出土与流传、一位设计师的成名之路、一个奖项或双年展的分量）、行业事件的前情——让报道有故事的纵深；圈内说法（策展、中古、联名这类）视陌生度给一句白话"

@@ -1,0 +1,59 @@
+{% extends "base.html.j2" %}
+{% block title %}rebas_daily · {{ issue_date }}{% endblock %}
+{% block nav %}
+  {% if prev_date %}<a href="issue-{{ prev_date }}.html">← {{ prev_date[5:] }}</a>{% endif %}
+  {% if next_date %}<a href="issue-{{ next_date }}.html">{{ next_date[5:] }} →</a>{% endif %}
+{% endblock %}
+{% block content %}
+<div class="issue-head">
+  <h1 class="issue-date">{{ issue_date }}<span class="weekday">{{ weekday }}</span></h1>
+</div>
+
+{% for board in boards %}
+<section class="board">
+  <h2 class="board-name">{{ board.name }}</h2>
+
+  {% if board.features %}
+  <div class="features">
+    {% for f in board.features %}
+    <a class="card {{ 'card-headline' if f.slot == 'headline' }}" href="{{ f.page }}">
+      {% if f.image %}
+      <div class="card-media"><img src="{{ f.image }}" alt="" loading="lazy"
+           onerror="this.parentNode.classList.add('card-fallback');this.remove()"></div>
+      {% else %}
+      <div class="card-media card-fallback" style="--hue: {{ f.hue }}">
+        <span class="fallback-mark">{{ f.mark }}</span>
+      </div>
+      {% endif %}
+      <div class="card-body">
+        {% if f.slot == 'headline' %}<span class="badge">头条</span>{% endif %}
+        {% if f.update_of %}<span class="badge badge-update">进展更新</span>{% endif %}
+        <h3>{{ f.title }}</h3>
+        <p>{{ f.card_summary }}</p>
+      </div>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="empty-note">今日无专题——淡宣日，不凑数。</p>
+  {% endif %}
+
+  {% if board.briefs %}
+  <h3 class="briefs-title">速览</h3>
+  <ul class="briefs">
+    {% for b in board.briefs %}
+    <li>
+      {% if b.page %}
+      <a href="{{ b.page }}">{{ b.title }}</a>
+      {% else %}
+      <a href="{{ b.url }}" target="_blank" rel="noopener">{{ b.title }}</a>
+      {% endif %}
+      <span class="brief-source">{{ b.source }}</span>
+      {% if b.reason %}<p class="brief-reason">{{ b.reason }}</p>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+{% endfor %}
+{% endblock %}

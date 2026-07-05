@@ -1,0 +1,361 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Tag from "../components/Tag.astro";
+import {
+  site,
+  issues,
+  issueHref,
+  type Issue,
+  type Board,
+  type Topic,
+} from "../lib/data";
+
+// 报道页：topic-{date}-{board}-{key}.html（有 article 的选题才有页面；
+// 文件名含 board，跨板块撞 thread_key 时不互相覆盖）
+export function getStaticPaths() {
+  return issues.flatMap((issue) =>
+    issue.boards.flatMap((board) => {
+      const all = [
+        ...(board.headline ? [board.headline] : []),
+        ...board.features,
+        ...board.briefs,
+      ];
+      return all
+        .filter((t) => t.page && t.body_html)
+        .map((topic) => ({
+          params: { slug: `${issue.date}-${board.id}-${topic.key}` },
+          props: { issue, board, topic },
+        }));
+    }),
+  );
+}
+
+interface Props {
+  issue: Issue;
+  board: Board;
+  topic: Topic;
+}
+
+const { issue, board, topic } = Astro.props;
+const slotLabel =
+  topic.slot === "headline"
+    ? "头条 HEADLINE"
+    : topic.is_feature
+      ? "专题 FEATURE"
+      : "速览 BRIEF";
+const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
+const boardHref = issueHref(board.id, issue.date);
+---
+
+<Layout
+  title={`${topic.title} — ${site.name}`}
+  description={topic.summary}
+  active={board.id}
+  issueLabel={issueLabel}
+>
+  <nav class="returnbar" aria-label="返回">
+    <div class="container container--narrow returnbar__row">
+      <a class="mono returnbar__back" href={boardHref}>
+        ← {board.name} · {issue.date} · 第 {issue.no} 期
+      </a>
+      <span class="mono returnbar__slot">{slotLabel}</span>
+    </div>
+  </nav>
+
+  <div class="container container--narrow">
+    <header class="art-head">
+      <div class="art-head__meta">
+        <Tag kind={topic.kind} />
+        {topic.meta.length > 0 && <span class="mono">{topic.meta.join(" · ")}</span>}
+        {topic.read_minutes && <span class="mono">约 {topic.read_minutes} 分钟</span>}
+      </div>
+      <h1 class="art-head__title serif">{topic.title}</h1>
+      <p class="art-head__dek">{topic.summary}</p>
+      <span class="art-head__mark" aria-hidden="true"></span>
+    </header>
+
+    {
+      topic.image && (
+        <figure class="hero">
+          <img
+            src={topic.image}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerpolicy="no-referrer"
+            onerror="this.closest('figure').remove()"
+          />
+          <figcaption class="mono">IMAGE — {topic.source}</figcaption>
+        </figure>
+      )
+    }
+
+    <article class="art-body" set:html={topic.body_html} />
+
+    {
+      topic.sources && topic.sources.length > 0 && (
+        <section class="sources">
+          <hr class="rule" />
+          <span class="mono">供稿材料 SOURCES — {topic.sources.length}</span>
+          <div class="sources__list">
+            {topic.sources.map((s, i) => (
+              <div class="src">
+                <span class="mono src__idx">{String(i + 1).padStart(2, "0")}</span>
+                <div class="src__mid">
+                  <a class="src__name" href={s.url} target="_blank" rel="noopener">
+                    {s.title}
+                  </a>
+                  <span class="mono src__sub">
+                    {s.source} · {s.kind.toUpperCase()}
+                  </span>
+                </div>
+                <a class="mono mono--link" href={s.url} target="_blank" rel="noopener">
+                  原文 ↗
+                </a>
+              </div>
+            ))}
+          </div>
+        </section>
+      )
+    }
+
+    <p class="back">
+      <a class="mono mono--link" href={boardHref}>← 返回 {issue.date} · {board.name}板块</a>
+    </p>
+  </div>
+</Layout>
+
+<style>
+  /* 吸顶返回条：滚到任意位置都能一键回板块（毛玻璃底，纯 CSS） */
+  .returnbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  /* ≤880px 板块导航条吸顶（高 46px），返回条叠在它下面 */
+  @media (max-width: 880px) {
+    .returnbar {
+      top: 46px;
+    }
+  }
+
+  .returnbar__row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .returnbar__back {
+    color: var(--secondary);
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.15s;
+  }
+
+  .returnbar__back:hover {
+    color: var(--accent);
+  }
+
+  .returnbar__slot {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .art-head {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 38px 0 30px;
+  }
+
+  .art-head__meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .art-head__title {
+    font-size: 38px;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  .art-head__dek {
+    font-size: 16.5px;
+    line-height: 1.7;
+    color: var(--secondary);
+  }
+
+  .art-head__mark {
+    width: 40px;
+    height: 3px;
+    background: var(--accent);
+  }
+
+  .hero {
+    margin: 0 0 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .hero img {
+    width: 100%;
+    max-height: 440px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--hairline);
+    background: var(--soft);
+  }
+
+  .art-body {
+    padding-bottom: 44px;
+  }
+
+  /* 正文排版：body_md 转出的 HTML（## 小标题 → h2 专栏式标题） */
+  .art-body :global(p) {
+    font-size: 15.5px;
+    line-height: 1.95;
+    color: var(--body);
+    margin-bottom: 24px;
+  }
+
+  .art-body :global(h2) {
+    font-family: var(--serif);
+    font-size: 21px;
+    color: var(--ink);
+    margin: 34px 0 18px;
+  }
+
+  .art-body :global(h3) {
+    font-family: var(--serif);
+    font-size: 17px;
+    color: var(--ink);
+    margin: 28px 0 14px;
+  }
+
+  .art-body :global(ul),
+  .art-body :global(ol) {
+    padding-left: 22px;
+    margin-bottom: 24px;
+    font-size: 15px;
+    line-height: 1.9;
+    color: var(--body);
+  }
+
+  .art-body :global(blockquote) {
+    border-left: 2px solid var(--hairline);
+    padding-left: 18px;
+    color: var(--secondary);
+    margin-bottom: 24px;
+  }
+
+  .art-body :global(a) {
+    color: var(--ink);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .art-body :global(a:hover) {
+    color: var(--accent);
+    border-bottom-color: var(--accent);
+  }
+
+  .art-body :global(code) {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--soft);
+    padding: 1px 5px;
+    border-radius: 3px;
+  }
+
+  /* 公式（构建期 LaTeX→MathML，浏览器原生渲染，无 JS 无外链） */
+  .art-body :global(math) {
+    font-size: 1.08em;
+  }
+
+  .art-body :global(math[display="block"]) {
+    display: block;
+    margin: 6px 0 10px;
+    text-align: center;
+    overflow-x: auto;
+    max-width: 100%;
+  }
+
+  /* 解析失败的降级块（<pre><code> 原文），沿用代码块底色并允许横滑 */
+  .art-body :global(pre) {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--soft);
+    padding: 12px 16px;
+    border-radius: 3px;
+    overflow-x: auto;
+    margin: 0 0 1.4em;
+  }
+
+  .art-body :global(pre code) {
+    background: none;
+    padding: 0;
+  }
+
+  .sources {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding-bottom: 44px;
+  }
+
+  .src {
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
+    gap: 18px;
+    align-items: start;
+    padding: 13px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .src__idx {
+    padding-top: 3px;
+  }
+
+  .src__mid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .src__name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--ink);
+    line-height: 1.5;
+  }
+
+  .src__name:hover {
+    color: var(--accent);
+  }
+
+  .src__sub {
+    font-size: 10.5px;
+  }
+
+  .back {
+    padding-bottom: 20px;
+  }
+
+  @media (max-width: 640px) {
+    .art-head__title {
+      font-size: 28px;
+    }
+  }
+</style>

@@ -1,0 +1,36 @@
+# 商业板块兴趣画像（初稿 2026-07-03，2026-07-04 板块拆分时启用）
+# 时效：最新（无沉淀期）。源全 headline 级，入选后 lazy fetch 补全文。
+
+[board]
+id = "finance"
+name = "商业 · 美股/宏观"
+
+# 侧重：美股为主（用户 2026-07-03 确认）。
+# 现有 8 个英文源即可覆盖，中文源（RSSHub 依赖）降为可选项。
+
+[[interest]]
+name = "美股市场动态"
+weight = 5
+keywords = [
+  "stocks", "S&P 500", "Nasdaq", "Dow", "earnings", "IPO",
+  "Fed", "interest rate", "inflation", "treasury",
+]
+
+[[interest]]
+name = "科技公司财经"
+weight = 4
+keywords = [
+  "tech stocks", "semiconductor", "AI chip", "Nvidia",
+  "acquisition", "merger", "antitrust", "valuation",
+]
+
+[low_priority]
+keywords = []
+
+[blocklist]
+keywords = []
+
+[reader]
+# 切入角度=背景故事+术语并重
+assumed = "懂技术、日常看美股新闻，但不是金融从业者"
+explain = "切入角度是背景故事与术语并重：人物与机构的来历战绩（做空者此前的战役、基金的江湖地位、公司的起家史）、市场事件的前情脉络（此前几个季度发生了什么）；金融术语（私募信贷、0DTE、超额配售这类）首次出现给一句白话"

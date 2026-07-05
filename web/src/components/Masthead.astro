@@ -1,0 +1,334 @@
+---
+import { site, latestIssue, issueHref } from "../lib/data";
+
+interface Props {
+  active: string;
+  issueLabel?: string;
+}
+
+const { active, issueLabel } = Astro.props;
+const latest = latestIssue;
+
+const tabs = [
+  { id: "home", label: "首页", href: "index.html" },
+  ...site.boards.map((b) => ({
+    id: b.id,
+    label: b.name,
+    href: latest ? issueHref(b.id, latest.date) : "archive.html",
+  })),
+];
+const rightLabel =
+  issueLabel ??
+  (latest ? `NO.${String(latest.no).padStart(3, "0")} — ${latest.date}` : "");
+const currentLabel =
+  active === "archive" ? "归档" : (tabs.find((t) => t.id === active)?.label ?? "首页");
+---
+
+<header class="masthead">
+  <div class="container masthead__top">
+    <a class="brand" href="index.html">
+      <img class="brand__mark" src="logo-mark.svg" alt="" width="78" height="44" />
+      <span class="brand__text">
+        <span class="brand__name serif">{site.name}</span>
+        <span class="mono brand__sub">{site.tagline}</span>
+      </span>
+    </a>
+    <span class="mono masthead__issue">{rightLabel}</span>
+  </div>
+</header>
+
+{/* 独立于 header 的导航条：移动端吸顶（sticky 受父容器约束，必须是兄弟元素） */}
+<nav class="mastnav" aria-label="板块导航">
+  <div class="container masthead__tabs">
+    <ul class="tabs">
+      {
+        tabs.map((t) => (
+          <li>
+            <a
+              class:list={["tab", { "tab--active": active === t.id }]}
+              href={t.href}
+              aria-current={active === t.id ? "page" : undefined}
+            >
+              <span class="tab__mark" aria-hidden="true" />
+              {t.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+    <a
+      class:list={["mono", "mono--link", "tabs__archive", { "tab--active-archive": active === "archive" }]}
+      href="archive.html"
+    >
+      归档 ARCHIVE
+    </a>
+
+    <details class="tabdrop">
+      <summary class="tabdrop__summary">
+        <span class="tabdrop__mark" aria-hidden="true"></span>
+        {currentLabel}
+        <span class="tabdrop__caret" aria-hidden="true">▾</span>
+      </summary>
+      <div class="tabdrop__panel">
+        {
+          tabs.map((t) => (
+            <a
+              class:list={["tabdrop__item", { "tabdrop__item--active": active === t.id }]}
+              href={t.href}
+              aria-current={active === t.id ? "page" : undefined}
+            >
+              {t.label}
+            </a>
+          ))
+        }
+        <a
+          class:list={["tabdrop__item", "tabdrop__item--archive",
+            { "tabdrop__item--active": active === "archive" }]}
+          href="archive.html"
+        >
+          归档 ARCHIVE
+        </a>
+      </div>
+    </details>
+  </div>
+</nav>
+
+<style>
+  .mastnav {
+    border-bottom: 1px solid var(--hairline);
+    background: var(--bg);
+  }
+
+  .masthead__top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-top: 30px;
+    padding-bottom: 18px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .brand__mark {
+    height: 44px;
+    width: auto;
+  }
+
+  .brand__text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .brand__name {
+    font-size: 27px;
+    line-height: 1.1;
+  }
+
+  .brand__sub {
+    letter-spacing: 0.2em;
+  }
+
+  .masthead__issue {
+    font-size: 11px;
+    color: var(--secondary);
+  }
+
+  /* 单行不换行 + 横向滑动（窄屏），滚动条隐藏；桌面宽度足够时视觉不变 */
+  .masthead__tabs {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 24px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .masthead__tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .masthead__tabs > a {
+    flex: none;
+  }
+
+  .tabs {
+    display: flex;
+    gap: 34px;
+    list-style: none;
+    padding: 0;
+    flex: none;
+  }
+
+  .tab {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 0 16px;
+    font-size: 15px;
+    color: var(--muted);
+    transition: color 0.15s;
+    white-space: nowrap;
+  }
+
+  .tab:hover {
+    color: var(--ink);
+  }
+
+  .tab__mark {
+    width: 5px;
+    height: 5px;
+    background: var(--accent);
+    opacity: 0;
+  }
+
+  .tab--active {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  .tab--active .tab__mark {
+    opacity: 1;
+  }
+
+  .tab--active-archive {
+    color: var(--ink);
+  }
+
+  /* ---- 移动端板块下拉（原生 details，零 JS）---- */
+  .tabdrop {
+    display: none;
+    position: relative;
+  }
+
+  .tabdrop__summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 0 14px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--ink);
+    list-style: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .tabdrop__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .tabdrop__mark {
+    width: 5px;
+    height: 5px;
+    background: var(--accent);
+  }
+
+  .tabdrop__caret {
+    color: var(--muted);
+    font-size: 11px;
+    transition: transform 0.15s;
+  }
+
+  .tabdrop[open] .tabdrop__caret {
+    transform: rotate(180deg);
+  }
+
+  .tabdrop__panel {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 30;
+    min-width: 200px;
+    padding: 6px 0;
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  }
+
+  .tabdrop__item {
+    display: block;
+    padding: 11px 18px;
+    font-size: 14px;
+    color: var(--secondary);
+  }
+
+  .tabdrop__item--active {
+    color: var(--ink);
+    font-weight: 500;
+    background: var(--soft);
+  }
+
+  .tabdrop__item--archive {
+    margin-top: 6px;
+    border-top: 1px solid var(--hairline);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+  }
+
+  /* 断点 880：八个 tab + 归档约 850px 宽，640~880 区间单行会溢出且滚动条隐藏、
+     归档滑出视口不可发现——提前切到下拉（2026-07-04 审查） */
+  @media (max-width: 880px) {
+    /* 导航条吸顶：板块内浏览/读文章时随时可切换，不用滚回头部。
+       高度固定 46px——topic 页的吸顶返回条以此为 top 偏移，两条叠放 */
+    .mastnav {
+      position: sticky;
+      top: 0;
+      z-index: 25;
+      background: var(--bg);
+      background: color-mix(in srgb, var(--bg) 92%, transparent);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+    }
+
+    /* tab 行让位给下拉；overflow 改回 visible 以免裁掉下拉面板 */
+    .masthead__tabs {
+      overflow: visible;
+      min-height: 46px;
+      align-items: center;
+    }
+
+    .tabs,
+    .tabs__archive {
+      display: none;
+    }
+
+    .tabdrop {
+      display: block;
+    }
+
+    .tabdrop__summary {
+      padding: 12px 0;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .masthead__issue {
+      display: none;
+    }
+
+    .brand__sub {
+      display: none;
+    }
+
+    .masthead__top {
+      padding-top: 20px;
+      padding-bottom: 12px;
+    }
+
+    .brand__mark {
+      height: 34px;
+    }
+
+    .brand__name {
+      font-size: 22px;
+    }
+  }
+</style>

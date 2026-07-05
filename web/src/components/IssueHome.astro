@@ -1,0 +1,282 @@
+---
+import Tag from "./Tag.astro";
+import FeatureCard from "./FeatureCard.astro";
+import {
+  topicCount,
+  issueHref,
+  issueHomeHref,
+  type Issue,
+} from "../lib/data";
+
+interface Props {
+  issue: Issue;
+}
+
+const { issue } = Astro.props;
+
+// 每板块：headline 缺位时提升首个专题为头条位（主编允许 0 专题不凑数）
+const sections = issue.boards.map((b, i) => {
+  const lead = b.headline ?? b.features[0] ?? null;
+  const side = (b.headline ? b.features : b.features.slice(1)).slice(0, 3);
+  const leadHref = lead ? (lead.page ?? lead.url) : null;
+  const leadExternal = !!lead && !lead.page && !!lead.url;
+  return { ...b, lead, side, leadHref, leadExternal, no: String(i + 1).padStart(2, "0") };
+});
+---
+
+<div class="container">
+  <h1 class="sr-only">Rebas Daily 第 {issue.no} 期 · {issue.date}</h1>
+  <nav class="datenav" aria-label="期次导航">
+    <div class="datenav__left">
+      {
+        issue.prev ? (
+          <a class="mono mono--link" href={issueHomeHref(issue.prev)}>
+            ← {issue.prev}
+          </a>
+        ) : (
+          <span class="mono datenav__off">← 创刊号</span>
+        )
+      }
+      <span class="mono datenav__current">
+        第 {issue.no} 期 — {issue.date} · {issue.weekday} · 共 {topicCount(issue)} 题
+      </span>
+      {
+        issue.next ? (
+          <a class="mono mono--link" href={issueHomeHref(issue.next)}>
+            {issue.next} →
+          </a>
+        ) : (
+          <span class="mono datenav__off">下一期 →</span>
+        )
+      }
+    </div>
+    <a class="mono mono--link" href="archive.html">归档 →</a>
+  </nav>
+
+  {
+    sections.map((b) => (
+      <section class="sec">
+        <hr class="rule" />
+        <header class="sec__head">
+          <div class="sec__head-left">
+            <span class="mono">SECTION {b.no} — {b.en}</span>
+            <h2 class="sec__name serif">{b.name}</h2>
+          </div>
+          <a class="mono mono--link" href={issueHref(b.id, issue.date)}>
+            进入板块 →
+          </a>
+        </header>
+
+        <div class="sec__body">
+          {b.lead ? (
+            <article class="lead">
+              {b.lead.image && (
+                <figure class="lead__fig">
+                  <img
+                    src={b.lead.image}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    referrerpolicy="no-referrer"
+                    onerror="this.closest('figure').remove()"
+                  />
+                </figure>
+              )}
+              <div class="lead__text">
+                <div class="lead__meta">
+                  <Tag kind={b.lead.kind} />
+                  {b.lead.meta.length > 0 && (
+                    <span class="mono">{b.lead.meta.join(" · ")}</span>
+                  )}
+                  {b.lead.read_minutes && (
+                    <span class="mono">约 {b.lead.read_minutes} 分钟</span>
+                  )}
+                </div>
+                <h3 class="lead__title serif">
+                  {
+                    b.leadHref ? (
+                      <a
+                        href={b.leadHref}
+                        target={b.leadExternal ? "_blank" : undefined}
+                        rel={b.leadExternal ? "noopener" : undefined}
+                      >
+                        {b.lead.title}
+                      </a>
+                    ) : (
+                      b.lead.title
+                    )
+                  }
+                </h3>
+                <p class="lead__summary">{b.lead.summary}</p>
+                {
+                  b.leadHref && (
+                    <a
+                      class="mono lead__more"
+                      href={b.leadHref}
+                      target={b.leadExternal ? "_blank" : undefined}
+                      rel={b.leadExternal ? "noopener" : undefined}
+                    >
+                      {b.leadExternal ? "阅读原文 ↗" : "阅读全文 →"}
+                    </a>
+                  )
+                }
+              </div>
+            </article>
+          ) : (
+            <p class="mono sec__empty">
+              本期无专题 · 速览 {b.briefs.length} 条 —
+              <a href={issueHref(b.id, issue.date)}>进入板块 →</a>
+            </p>
+          )}
+
+          {b.side.length > 0 && (
+            <div class="sec__side">
+              {b.side.map((t) => (
+                <FeatureCard topic={t} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+    ))
+  }
+</div>
+
+<style>
+  .datenav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 28px 0 30px;
+  }
+
+  .datenav__left {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .datenav__current {
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 11px;
+  }
+
+  .datenav__off {
+    opacity: 0.5;
+  }
+
+  .sec {
+    padding-bottom: 56px;
+  }
+
+  .sec__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-top: 14px;
+  }
+
+  .sec__head-left {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+
+  .sec__name {
+    font-size: 26px;
+    line-height: 1.2;
+  }
+
+  /* 排版铁律：竖向流——头条通栏最大，专题卡网格次之，优先级由版面大小表达 */
+  .sec__body {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    padding-top: 32px;
+  }
+
+  .sec__empty {
+    padding-top: 6px;
+  }
+
+  .sec__empty a {
+    color: var(--secondary);
+  }
+
+  /* 排版铁律：图不与大标题抢横向宽度——lead 图通栏在上，标题永远满栏宽 */
+  .lead {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .lead__text {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .lead__fig {
+    margin: 0;
+    width: 100%;
+    aspect-ratio: 2 / 1;
+    max-height: 380px;
+    overflow: hidden;
+    border-radius: 4px;
+    border: 1px solid var(--hairline);
+    background: var(--soft);
+  }
+
+  .lead__fig img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .lead__meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .lead__title {
+    font-size: 32px;
+    line-height: 1.4;
+    text-wrap: balance;
+  }
+
+  .lead__title a:hover {
+    color: var(--accent);
+  }
+
+  .lead__summary {
+    font-size: 14.5px;
+    line-height: 1.75;
+    color: var(--secondary);
+  }
+
+  .lead__more {
+    color: var(--ink);
+    font-size: 11.5px;
+  }
+
+  .lead__more:hover {
+    color: var(--accent);
+  }
+
+  .sec__side {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 32px 40px;
+  }
+
+  @media (max-width: 860px) {
+    .lead__fig {
+      aspect-ratio: 16 / 9;
+    }
+  }
+</style>

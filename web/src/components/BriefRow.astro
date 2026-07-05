@@ -1,0 +1,149 @@
+---
+import type { Topic } from "../lib/data";
+import Tag from "./Tag.astro";
+
+interface Props {
+  topic: Topic;
+}
+
+const { topic } = Astro.props;
+// 有报道页走内页；无报道页回退原文外链（vault 06 §4）；两者皆无渲染纯文本
+const href = topic.page ?? topic.url;
+const external = !topic.page && !!topic.url;
+---
+
+<article class="brief">
+  <div class="brief__tag">
+    <Tag kind={topic.kind} />
+  </div>
+  <div class="brief__mid">
+    <h3 class="brief__title">
+      {
+        href ? (
+          <a
+            href={href}
+            target={external ? "_blank" : undefined}
+            rel={external ? "noopener" : undefined}
+          >
+            {topic.title}
+            {external && <span class="brief__ext" aria-hidden="true">↗</span>}
+          </a>
+        ) : (
+          topic.title
+        )
+      }
+    </h3>
+    <p class="brief__summary">{topic.summary}</p>
+  </div>
+  <span class="mono brief__meta">
+    {topic.meta.join(" · ") || (external ? topic.source : "")}
+  </span>
+  {
+    topic.image && (
+      <figure class="brief__fig">
+        <img
+          src={topic.image}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerpolicy="no-referrer"
+          onerror="this.closest('figure').remove()"
+        />
+      </figure>
+    )
+  }
+</article>
+
+<style>
+  .brief {
+    display: flex;
+    gap: 20px;
+    align-items: flex-start;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .brief__tag {
+    flex: 0 0 64px;
+    padding-top: 2px;
+  }
+
+  .brief__mid {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .brief__fig {
+    margin: 0;
+    flex: 0 0 88px;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 4px;
+    border: 1px solid var(--hairline);
+    background: var(--soft);
+  }
+
+  .brief__fig img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .brief__mid {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .brief__title {
+    font-family: var(--sans);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+
+  .brief__title a:hover {
+    color: var(--accent);
+  }
+
+  .brief__ext {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .brief__summary {
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--secondary);
+  }
+
+  .brief__meta {
+    padding-top: 4px;
+    font-size: 10.5px;
+    letter-spacing: 0.05em;
+    text-align: right;
+  }
+
+  @media (max-width: 640px) {
+    .brief {
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .brief__tag {
+      flex-basis: auto;
+    }
+
+    .brief__mid {
+      flex: 1 1 55%;
+    }
+
+    .brief__meta {
+      order: 4;
+      flex-basis: 100%;
+      text-align: left;
+      padding-top: 0;
+    }
+  }
+</style>

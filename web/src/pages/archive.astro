@@ -1,0 +1,107 @@
+---
+import Layout from "../layouts/Layout.astro";
+import { site, issueHomeHref } from "../lib/data";
+
+// 归档全量存目：保留窗口内的期次有页面入口，更早的只留题录
+const list = [...site.issues].reverse();
+---
+
+<Layout
+  title={`归档 — ${site.name}`}
+  description={`${site.name} 往期归档`}
+  active="archive"
+>
+  <div class="container">
+    <header class="head">
+      <span class="mono">归档 ARCHIVE — {list.length} 期</span>
+      <h1 class="head__title serif">往期</h1>
+    </header>
+    <hr class="rule" />
+    <div class="list">
+      {
+        list.map((issue) => (
+          <article class="row">
+            <div class="row__date">
+              <span class="mono">NO.{String(issue.no).padStart(3, "0")}</span>
+              <h2 class="row__day serif">{issue.date}</h2>
+              <span class="mono">{issue.weekday}</span>
+            </div>
+            <div class="row__mid">
+              <p class="row__titles">
+                {issue.titles.length > 0 ? issue.titles.join(" / ") : "（本期无专题）"}
+              </p>
+              {
+                issue.archived ? (
+                  <span class="mono row__archived">已归档 · 仅存目</span>
+                ) : (
+                  <a class="mono mono--link" href={issueHomeHref(issue.date)}>
+                    查看本期 →
+                  </a>
+                )
+              }
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .head {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 40px 0 24px;
+  }
+
+  .head__title {
+    font-size: 30px;
+  }
+
+  .list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 40px;
+    padding: 26px 0;
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .row__date {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .row__day {
+    font-size: 19px;
+  }
+
+  .row__mid {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .row__titles {
+    font-size: 14px;
+    line-height: 1.8;
+    color: var(--secondary);
+  }
+
+  .row__archived {
+    opacity: 0.6;
+  }
+
+  @media (max-width: 640px) {
+    .row {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+  }
+</style>

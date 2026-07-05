@@ -1,0 +1,301 @@
+---
+import Layout from "../layouts/Layout.astro";
+import Tag from "../components/Tag.astro";
+import FeatureCard from "../components/FeatureCard.astro";
+import BriefRow from "../components/BriefRow.astro";
+import { site, issues, issueHref, type Issue, type Board } from "../lib/data";
+
+// 板块页：{board}-{date}.html
+export function getStaticPaths() {
+  return issues.flatMap((issue) =>
+    issue.boards.map((board) => ({
+      params: { slug: `${board.id}-${issue.date}` },
+      props: { issue, board },
+    })),
+  );
+}
+
+interface Props {
+  issue: Issue;
+  board: Board;
+}
+
+const { issue, board } = Astro.props;
+const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
+const headline = board.headline;
+const hlHref = headline ? (headline.page ?? headline.url) : null;
+const hlExternal = !!headline && !headline.page && !!headline.url;
+---
+
+<Layout
+  title={`${board.name} · ${issue.date} · 第 ${issue.no} 期 — ${site.name}`}
+  description={`${site.name} ${board.name_full} ${issue.date}`}
+  active={board.id}
+  issueLabel={issueLabel}
+>
+  <div class="container">
+    {!headline && <h1 class="sr-only">{board.name} · {issue.date} · 第 {issue.no} 期</h1>}
+    <nav class="datenav" aria-label="期次导航">
+      <div class="datenav__left">
+        {
+          issue.prev ? (
+            <a class="mono mono--link" href={issueHref(board.id, issue.prev)}>
+              ← {issue.prev}
+            </a>
+          ) : (
+            <span class="mono datenav__off">← 创刊号</span>
+          )
+        }
+        <span class="mono datenav__current">
+          {issue.date} — 第 {issue.no} 期 · {issue.weekday}
+        </span>
+        {
+          issue.next ? (
+            <a class="mono mono--link" href={issueHref(board.id, issue.next)}>
+              {issue.next} →
+            </a>
+          ) : (
+            <span class="mono datenav__off">下一期 →</span>
+          )
+        }
+      </div>
+      <a class="mono mono--link" href="archive.html">归档 →</a>
+    </nav>
+
+    {
+      headline && (
+        <article class="hl">
+          <span class="mono hl__eyebrow">头条 HEADLINE</span>
+          <div class="hl__body">
+            <div class="hl__text">
+              <div class="hl__meta">
+                <Tag kind={headline.kind} />
+                {headline.meta.length > 0 && (
+                  <span class="mono">{headline.meta.join(" · ")}</span>
+                )}
+                {headline.read_minutes && (
+                  <span class="mono">约 {headline.read_minutes} 分钟</span>
+                )}
+              </div>
+              <h1 class="hl__title serif">
+                {
+                  hlHref ? (
+                    <a
+                      href={hlHref}
+                      target={hlExternal ? "_blank" : undefined}
+                      rel={hlExternal ? "noopener" : undefined}
+                    >
+                      {headline.title}
+                    </a>
+                  ) : (
+                    headline.title
+                  )
+                }
+              </h1>
+              <p class="hl__summary">{headline.summary}</p>
+              {
+                hlHref && (
+                  <a
+                    class="mono hl__more"
+                    href={hlHref}
+                    target={hlExternal ? "_blank" : undefined}
+                    rel={hlExternal ? "noopener" : undefined}
+                  >
+                    {hlExternal ? "阅读原文 ↗" : "阅读全文 →"}
+                  </a>
+                )
+              }
+            </div>
+            {headline.image && (
+              <figure class="hl__fig">
+                <img
+                  src={headline.image}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  referrerpolicy="no-referrer"
+                  onerror="this.closest('figure').remove()"
+                />
+              </figure>
+            )}
+          </div>
+        </article>
+      )
+    }
+
+    {
+      board.features.length > 0 && (
+        <section class="block">
+          <hr class="rule" />
+          <span class="mono">深度专题 FEATURES — {board.features.length}</span>
+          <div class="block__grid">
+            {board.features.map((t) => (
+              <FeatureCard topic={t} large />
+            ))}
+          </div>
+        </section>
+      )
+    }
+
+    {
+      board.briefs.length > 0 && (
+        <section class="block">
+          <hr class="rule" />
+          <span class="mono">速览 BRIEFS — {board.briefs.length}</span>
+          <div class="block__list">
+            {board.briefs.map((t) => (
+              <BriefRow topic={t} />
+            ))}
+          </div>
+        </section>
+      )
+    }
+
+    {
+      !headline && board.features.length === 0 && board.briefs.length === 0 && (
+        <p class="mono block">本期本板块暂无内容</p>
+      )
+    }
+  </div>
+</Layout>
+
+<style>
+  .datenav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding-top: 26px;
+  }
+
+  .datenav__left {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+
+  .datenav__current {
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 11px;
+  }
+
+  .datenav__off {
+    opacity: 0.5;
+  }
+
+  .hl {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    padding: 42px 0 46px;
+  }
+
+  .hl__eyebrow {
+    color: var(--accent);
+  }
+
+  .hl__body {
+    display: flex;
+    gap: 48px;
+    align-items: flex-start;
+  }
+
+  .hl__text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .hl__fig {
+    margin: 0;
+    flex: 0 0 400px;
+    aspect-ratio: 3 / 2;
+    overflow: hidden;
+    border-radius: 4px;
+    border: 1px solid var(--hairline);
+    background: var(--soft);
+  }
+
+  .hl__fig img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .hl__meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .hl__title {
+    font-size: 42px;
+    line-height: 1.35;
+    max-width: 880px;
+    text-wrap: balance;
+  }
+
+  .hl__title a:hover {
+    color: var(--accent);
+  }
+
+  .hl__summary {
+    font-size: 15px;
+    line-height: 1.8;
+    color: var(--secondary);
+    max-width: 760px;
+  }
+
+  .hl__more {
+    color: var(--ink);
+    font-size: 12px;
+  }
+
+  .hl__more:hover {
+    color: var(--accent);
+  }
+
+  .block {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-bottom: 46px;
+  }
+
+  .block__grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 64px;
+  }
+
+  .block__list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (max-width: 860px) {
+    .hl__title {
+      font-size: 30px;
+    }
+
+    .hl__body {
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .hl__fig {
+      flex-basis: auto;
+      width: 100%;
+    }
+
+    .block__grid {
+      grid-template-columns: 1fr;
+      gap: 26px;
+    }
+  }
+</style>

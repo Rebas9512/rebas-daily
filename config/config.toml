@@ -1,0 +1,39 @@
+# rebas_daily 全局配置
+
+[general]
+# 2026-07-04 cron 设计定稿：刊物日历以达拉斯为准（issue_date 与发布闸门都按此）
+timezone = "America/Chicago"
+data_dir = "data"            # SQLite 与图片缓存（相对项目根）
+site_dir = "site"            # 静态站渲染输出
+
+[llm]
+backend = "codex_cli"        # codex_cli | openai_api（抽象层随时可切）
+codex_home = ".codex"        # 项目专用凭证目录（相对项目根）
+call_gap_seconds = 2.0       # 相邻调用间隔（订阅额度节流）
+timeout_seconds = 300
+
+[llm.roles]                  # 各 agent 角色 → 模型档位（2026-07-03 实测可用型号）
+default = "gpt-5.5"
+screen = "gpt-5.4-mini"      # 大批量粗筛用 mini 档省额度
+editor = "gpt-5.5"
+checker = "gpt-5.5"
+researcher = "gpt-5.5"       # 背景调查：教科书级概念解释，讲错比不讲更糟 → 主力档
+writer = "gpt-5.5"
+
+[publish]
+# 2026-07-04 板块拆分：学术只做论文（沉淀 48h 等 OpenAlex），其余板块做最新消息
+# 2026-07-04 加量化板块（论文+新闻混合：q-fin 论文自动沉淀，新闻最新）
+boards = ["academic", "repos", "tech", "data", "finance", "quant", "art"]
+window_hours = 96            # 取窗下限：published_at 距今不超过 N 小时（无发布时间的按 fetched_at 36h）
+paper_settle_hours = 48      # 论文沉淀期：kind=paper 发布满 N 小时才入刊
+                             # 实测（2026-07-04）：OpenAlex 收录 arXiv ~26h 龄 0%、~50h 龄 100%；
+                             # 沉淀 48h 换全量作者信号 + 两天社区热度。设 0 恢复当天出刊。
+screen_batch = 50            # 粗筛每批条数
+screen_min_score = 3         # 低于此分 → dropped（题录保留）
+screen_cap = 400             # 单期粗筛输入上限
+editor_top = 80              # 主编看粗筛分前 N 条
+feature_cap = 4              # 每板块 feature 硬上限（代码兜底）
+brief_length = 300           # 速览报道目标篇幅（字）——每条入选速览也出短报道页
+site_keep_days = 7           # 往期完整页面保留天数（相对最新一期）；更早的进归档只存目
+                             # 渲染期生效，数据库不动——调大后 rebas render 可整体找回
+# 出刊时间点待定（M5 接 cron 时确定）

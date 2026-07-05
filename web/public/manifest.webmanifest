@@ -1,0 +1,16 @@
+{
+  "name": "Rebas Daily — 个人 AI 日刊",
+  "short_name": "Rebas Daily",
+  "description": "AI 自动采集、编选、核查与撰写的每日刊物：学术 / 开源 / 科技 / 数据 / 商业 / 量化 / 艺术",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f1f0",
+  "theme_color": "#f1f1f0",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
