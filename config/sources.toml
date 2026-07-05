@@ -1411,3 +1411,39 @@ kind = "paper"
 paywall = true
 fetch_interval_hours = 24
 enabled = false             # 备选：全学科 ~87 条池 AI 占比低，噪音/收益比差
+
+# ---- 顶刊·API/网页通道（2026-07-05；RSS 已死顶刊的兜底，见 journals.py 设计注释。
+# 时效口径：openalex_journal 用 created_date（收录时间），jmlr_volume 无日期走
+# fetched_at 36h 兜底；条目尽量映射 arXiv 版本（enrich/精读可用，且与在库
+# arXiv 预印本按 url_canonical 合并=顶刊收录信号自动挂到原条目）----
+
+[[source]]
+id = "oa-annals-stats"
+board = "data"
+name = "Annals of Statistics"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S119757635&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true              # 统计顶刊，官网 bot 墙 → OpenAlex 目录；双月刊+收录时间口径
+
+[[source]]
+id = "oa-jasa"
+board = "data"
+name = "JASA"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S4394736638&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true              # 统计顶刊，tandfonline 403 → OpenAlex 目录；online-first ~20 篇/月
+
+[[source]]
+id = "jmlr"
+board = "academic"
+name = "JMLR"
+type = "jmlr_volume"
+endpoint = "https://www.jmlr.org/papers/v27/"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # ML 顶刊；官方 RSS 日期仅年份精度 + OpenAlex 收录停在 2021 →
+                            # 解析官网卷页（新条目在末尾）。**每年 1 月卷号 +1（v = 年份-1999）**

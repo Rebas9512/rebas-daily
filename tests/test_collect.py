@@ -1,5 +1,6 @@
 """采集层单元测试：URL 规范化、预筛匹配、解析器、入库合并语义。"""
 
+import json
 from datetime import datetime, timedelta, timezone
 
 from rebas import db as database
@@ -140,3 +141,71 @@ def test_feed_kind_override():
     plain = make_source(id="blog")
     items, _ = parse_feed(plain, rss, conn=None, client=None)
     assert items[0].kind == "article"
+
+
+class TestJournalCollectors:
+    """顶刊通道：OpenAlex 目录解析 + JMLR 卷页解析（arXiv 映射）。"""
+
+    def test_openalex_journal_parser(self):
+        from rebas.collect.journals import parse_openalex_journal
+
+        payload = {"results": [
+            {"display_name": "Adaptive Robust Confidence Intervals",
+             "publication_date": "2026-06-01",          # 期号日期（会超窗，不应采用）
+             "created_date": "2026-07-03",
+             "doi": "https://doi.org/10.1214/xx",
+             "locations": [{"landing_page_url": "https://doi.org/10.1214/xx"},
+                           {"landing_page_url": "https://arxiv.org/abs/2301.01234v2"}],
+             "abstract_inverted_index": {"robust": [1], "Adaptive": [0], "intervals.": [2]},
+             "authorships": [{"author": {"display_name": "A. Zhang"}},
+                             {"author": {"display_name": "B. Li"}}],
+             "cited_by_count": 7},
+            {"display_name": "No arXiv Version Here",
+             "created_date": "2026-07-02",
+             "doi": "https://doi.org/10.1214/yy",
+             "locations": [], "authorships": []},
+        ]}
+        src = make_source(id="oa-test", board="data", type="openalex_journal")
+        items, _ = parse_openalex_journal(src, json.dumps(payload).encode())
+        assert len(items) == 2
+        a, b = items
+        assert a.kind == "paper"
+        assert a.url == "https://arxiv.org/abs/2301.01234"     # arXiv 版优先且剥 vN
+        assert a.published_at.startswith("2026-07-03")          # created_date 而非期号日期
+        assert a.summary == "Adaptive robust intervals."
+        assert a.author == "A. Zhang 等"
+        assert a.signals["venue"] == "t" or a.signals["venue"]  # venue=源名
+        assert a.signals["oa_paper_cites"] == 7
+        assert b.url == "https://doi.org/10.1214/yy"            # 无 arXiv 退回 DOI
+
+    def test_jmlr_volume_parser(self):
+        from rebas.collect.journals import parse_jmlr_volume
+
+        html = b"""<dl>
+        <dt>Known Old Paper</dt>
+        <dd><b><i>X. Yu</i></b>; (1):1-10, 2026.
+        <br>[<a href='/papers/v27/26-0001.html'>abs</a>]</dd>
+        <dt>Certified Machine Unlearning</dt>
+        <dd><b><i>H. Zou, A. Auddy</i></b>; (2):1-58, 2026.
+        <br>[<a href='/papers/v27/26-0002.html'>abs</a>]</dd>
+        </dl>"""
+
+        class FakeResp:
+            status_code = 200
+            text = """<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+                <id>http://arxiv.org/abs/2506.09999v1</id>
+                <title>Certified Machine  Unlearning</title></entry></feed>"""
+
+        class FakeClient:
+            def get(self, url):
+                return FakeResp()
+
+        src = make_source(id="jmlr", type="jmlr_volume",
+                          endpoint="https://www.jmlr.org/papers/v27/")
+        items, _ = parse_jmlr_volume(src, html, conn=None, client=FakeClient())
+        assert len(items) == 2
+        assert items[0].url == "https://www.jmlr.org/papers/v27/26-0001.html"  # 标题不匹配退回 JMLR 链接
+        assert items[1].url == "https://arxiv.org/abs/2506.09999"              # 精确匹配（含多空格归一）
+        assert items[1].signals["jmlr_url"].endswith("26-0002.html")
+        assert items[1].author == "H. Zou 等"
+        assert all(i.kind == "paper" and i.published_at is None for i in items)

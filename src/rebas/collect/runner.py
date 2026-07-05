@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from rebas import db
-from rebas.collect import arxiv, boards, feeds, hf
+from rebas.collect import arxiv, boards, feeds, hf, journals
 from rebas.collect.base import FetchResult, KeywordMatcher, fetch_url, make_client, utcnow_iso
 from rebas.config import Source, load_config, load_profile, load_sources
 
@@ -24,6 +24,8 @@ PARSERS = {
     "hf_models": hf.parse_models,
     "hn_algolia": boards.parse_hn,
     "gh_trending": boards.parse_gh_trending,
+    "openalex_journal": journals.parse_openalex_journal,
+    "jmlr_volume": journals.parse_jmlr_volume,
 }
 
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池
