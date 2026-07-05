@@ -10,9 +10,11 @@ interface Props {
   active: string;
   /** 刊头右上的期次信息 */
   issueLabel?: string;
+  /** 当前页所属期次；板块 tab 与期次下拉跟随它（缺省=最新期） */
+  issueDate?: string;
 }
 
-const { title, description, active, issueLabel } = Astro.props;
+const { title, description, active, issueLabel, issueDate } = Astro.props;
 ---
 
 <!doctype html>
@@ -41,7 +43,7 @@ const { title, description, active, issueLabel } = Astro.props;
     <title>{title}</title>
   </head>
   <body>
-    <Masthead active={active} issueLabel={issueLabel} />
+    <Masthead active={active} issueLabel={issueLabel} issueDate={issueDate} />
     <main>
       <slot />
     </main>

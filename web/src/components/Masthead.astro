@@ -1,20 +1,30 @@
 ---
-import { site, latestIssue, issueHref } from "../lib/data";
+import { site, latestIssue, issueHref, issueHomeHref } from "../lib/data";
 
 interface Props {
   active: string;
   issueLabel?: string;
+  /** 当前页所属期次；板块 tab 跟随它切换（不再跳回最新期）。缺省=最新期 */
+  issueDate?: string;
 }
 
-const { active, issueLabel } = Astro.props;
+const { active, issueLabel, issueDate } = Astro.props;
 const latest = latestIssue;
 
+// 期次上下文：浏览往期时 tab 全部指向该期的板块页
+const currentDate = issueDate ?? latest?.date;
+const isLatest = !currentDate || currentDate === latest?.date;
+
 const tabs = [
-  { id: "home", label: "首页", href: "index.html" },
+  {
+    id: "home",
+    label: "首页",
+    href: isLatest || !currentDate ? "index.html" : issueHomeHref(currentDate),
+  },
   ...site.boards.map((b) => ({
     id: b.id,
     label: b.name,
-    href: latest ? issueHref(b.id, latest.date) : "archive.html",
+    href: currentDate ? issueHref(b.id, currentDate) : "archive.html",
   })),
 ];
 const rightLabel =
@@ -22,6 +32,17 @@ const rightLabel =
   (latest ? `NO.${String(latest.no).padStart(3, "0")} — ${latest.date}` : "");
 const currentLabel =
   active === "archive" ? "归档" : (tabs.find((t) => t.id === active)?.label ?? "首页");
+
+// 期次下拉：只列保留窗口内有页面的期次（存目的归档期无页面，不进下拉防死链）
+const pad3 = (n: number) => String(n).padStart(3, "0");
+const issueEntries = site.issues
+  .filter((i) => !i.archived)
+  .sort((a, b) => b.date.localeCompare(a.date));
+const currentEntry =
+  issueEntries.find((i) => i.date === currentDate) ?? issueEntries[0];
+const dateSummary = currentEntry
+  ? `NO.${pad3(currentEntry.no)} · ${currentEntry.date.slice(5)}`
+  : "期次";
 ---
 
 <header class="masthead">
@@ -90,6 +111,37 @@ const currentLabel =
         </a>
       </div>
     </details>
+
+    {/* 期次选择（全宽度可用）：选定某期后板块 tab 均留在该期；含回最新期快捷项 */}
+    <details class="datedrop">
+      <summary class="datedrop__summary mono" aria-label="选择期次">
+        {dateSummary}
+        <span class="datedrop__caret" aria-hidden="true">▾</span>
+      </summary>
+      <div class="datedrop__panel">
+        {!isLatest && (
+          <a class="datedrop__item datedrop__latest" href="index.html">
+            回到最新一期 →
+          </a>
+        )}
+        {
+          issueEntries.map((e) => (
+            <a
+              class:list={["datedrop__item", "mono",
+                { "datedrop__item--active": e.date === currentEntry?.date }]}
+              href={e.date === latest?.date ? "index.html" : issueHomeHref(e.date)}
+              aria-current={e.date === currentEntry?.date ? "page" : undefined}
+            >
+              <span class="datedrop__mark" aria-hidden="true" />
+              NO.{pad3(e.no)} · {e.date.slice(5)} {e.weekday}
+            </a>
+          ))
+        }
+        <a class="datedrop__item datedrop__all mono" href="archive.html">
+          更早期次见归档 →
+        </a>
+      </div>
+    </details>
   </div>
 </nav>
 
@@ -141,7 +193,7 @@ const currentLabel =
   /* 单行不换行 + 横向滑动（窄屏），滚动条隐藏；桌面宽度足够时视觉不变 */
   .masthead__tabs {
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
     gap: 24px;
     overflow-x: auto;
@@ -154,6 +206,11 @@ const currentLabel =
 
   .masthead__tabs > a {
     flex: none;
+  }
+
+  /* 归档 + 期次选择靠右成组 */
+  .tabs__archive {
+    margin-left: auto;
   }
 
   .tabs {
@@ -197,6 +254,125 @@ const currentLabel =
 
   .tab--active-archive {
     color: var(--ink);
+  }
+
+  /* ---- 期次选择下拉（原生 details，零 JS；全宽度可用）---- */
+  .datedrop {
+    position: relative;
+    flex: none;
+  }
+
+  .datedrop__summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 0 16px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--secondary);
+    list-style: none;
+    cursor: pointer;
+    white-space: nowrap;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
+  }
+
+  .datedrop__summary:hover {
+    color: var(--ink);
+  }
+
+  .datedrop__summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .datedrop__caret {
+    color: var(--muted);
+    font-size: 10px;
+    transition: transform 0.15s;
+  }
+
+  .datedrop[open] .datedrop__caret {
+    transform: rotate(180deg);
+  }
+
+  .datedrop__panel {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 30;
+    min-width: 220px;
+    max-height: 62vh;
+    overflow-y: auto;
+    padding: 6px 0;
+    background: var(--bg);
+    border: 1px solid var(--hairline);
+    border-radius: 4px;
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18);
+  }
+
+  .datedrop__item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 18px;
+    font-size: 12px;
+    letter-spacing: 0.06em;
+    color: var(--secondary);
+    white-space: nowrap;
+  }
+
+  .datedrop__item:hover {
+    color: var(--ink);
+  }
+
+  .datedrop__mark {
+    width: 5px;
+    height: 5px;
+    flex: none;
+    background: var(--accent);
+    opacity: 0;
+  }
+
+  .datedrop__item--active {
+    color: var(--ink);
+    font-weight: 500;
+    background: var(--soft);
+  }
+
+  .datedrop__item--active .datedrop__mark {
+    opacity: 1;
+  }
+
+  .datedrop__latest {
+    font-family: var(--sans, inherit);
+    font-size: 13px;
+    color: var(--accent);
+    border-bottom: 1px solid var(--hairline);
+    margin-bottom: 6px;
+  }
+
+  .datedrop__latest:hover {
+    color: var(--accent);
+    opacity: 0.8;
+  }
+
+  .datedrop__all {
+    margin-top: 6px;
+    border-top: 1px solid var(--hairline);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+  }
+
+  /* 点外部自动收起（零 JS）：同 tabdrop 的全屏点击层方案，全宽度生效 */
+  .datedrop[open] .datedrop__summary::before {
+    content: "";
+    position: fixed;
+    top: -100vh;
+    left: -100vw;
+    width: 300vw;
+    height: 300vh;
+    z-index: 29;
   }
 
   /* ---- 移动端板块下拉（原生 details，零 JS）---- */
@@ -306,6 +482,15 @@ const currentLabel =
     }
 
     .tabdrop__summary {
+      padding: 12px 0;
+    }
+
+    /* 吸顶条内：板块下拉居左，期次下拉顶右 */
+    .datedrop {
+      margin-left: auto;
+    }
+
+    .datedrop__summary {
       padding: 12px 0;
     }
 

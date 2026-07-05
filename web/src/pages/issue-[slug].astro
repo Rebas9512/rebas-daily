@@ -24,6 +24,7 @@ const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
   description={site.tagline}
   active="home"
   issueLabel={issueLabel}
+  issueDate={issue.date}
 >
   <IssueHome issue={issue} />
 </Layout>

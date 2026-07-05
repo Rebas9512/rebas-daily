@@ -32,6 +32,7 @@ const hlExternal = !!headline && !headline.page && !!headline.url;
   description={`${site.name} ${board.name_full} ${issue.date}`}
   active={board.id}
   issueLabel={issueLabel}
+  issueDate={issue.date}
 >
   <div class="container">
     {!headline && <h1 class="sr-only">{board.name} · {issue.date} · 第 {issue.no} 期</h1>}
