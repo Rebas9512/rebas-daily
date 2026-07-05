@@ -27,7 +27,7 @@ def test_load_sources():
 
 
 def test_load_profiles():
-    for board in ("academic", "repos", "tech", "data", "finance", "quant", "art"):
+    for board in ("academic", "repos", "tech", "data", "finance", "quant", "design", "art"):
         p = cfg.load_profile(board)
         assert p.board == board
         assert p.interests, board

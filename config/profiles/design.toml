@@ -1,0 +1,50 @@
+# 设计板块兴趣画像（2026-07-05 新建，自 art 板块拆出设计三领域）
+# 定位=设计学科本身：产品设计（实体+数字/UX）、工业设计、平面设计。
+# 与 art(当代艺术/艺术市场/建筑) 错位：art 收艺术与空间，design 收设计实践与设计产业。
+
+[board]
+id = "design"
+name = "设计 · 产品/工业/平面"
+
+[[interest]]
+name = "工业 / 产品设计（实体）"
+weight = 5
+keywords = [
+  "industrial design", "product design", "furniture", "material",
+  "prototype", "consumer product", "hardware design", "gadget",
+]
+
+[[interest]]
+name = "平面设计 / 品牌 / 字体"
+weight = 5
+keywords = [
+  "graphic design", "branding", "typography", "visual identity",
+  "logo", "rebrand", "poster", "type design",
+]
+
+[[interest]]
+name = "数字产品设计 / UX"
+weight = 4
+keywords = [
+  "UX", "user experience", "interface", "interaction design",
+  "design system", "usability", "product designer", "design tool",
+]
+
+[[interest]]
+name = "设计产业与人物"
+weight = 3
+keywords = [
+  "design studio", "design award", "design agency", "design week",
+  "designer", "creative director",
+]
+
+[low_priority]
+# 灵感清单/促销/教程类噪音降权
+keywords = ["deal", "discount", "giveaway", "tutorial", "roundup", "wallpaper download"]
+
+[blocklist]
+keywords = []
+
+[reader]
+assumed = "懂技术、对设计有兴趣，但不是设计从业者"
+explain = "切入角度兼有两种：设计概念与方法论术语（设计系统、可用性测试、字体家族、栅格这类）首次出现给一句白话；以及背景故事（设计师/工作室/品牌的来历与地位、一次品牌重塑的前情、奖项或设计周的分量）——一件产品或作品要讲清楚它为什么值得看"

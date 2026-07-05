@@ -197,6 +197,50 @@ content = "headline"
 fetch_interval_hours = 12
 enabled = true
 
+# —— 2026-07-05 扩充：trending 榜单日重叠率 90%+（每天真·新条目仅 1-3 条），
+#    加语言分榜 + Show HN 新项目流拓宽 repos 候选面 ——
+
+[[source]]
+id = "gh-trending-rust"
+board = "repos"
+name = "GitHub Trending（Rust·日榜）"
+type = "gh_trending"
+endpoint = "https://github.com/trending/rust?since=daily"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # 系统/推理引擎生态（candle/burn 一类多从这里冒头）
+
+[[source]]
+id = "gh-trending-typescript"
+board = "repos"
+name = "GitHub Trending（TypeScript·日榜）"
+type = "gh_trending"
+endpoint = "https://github.com/trending/typescript?since=daily"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # AI 应用/agent SDK 生态
+
+[[source]]
+id = "gh-trending-go"
+board = "repos"
+name = "GitHub Trending（Go·日榜）"
+type = "gh_trending"
+endpoint = "https://github.com/trending/go?since=daily"
+content = "headline"
+fetch_interval_hours = 12
+enabled = false             # 备选：基础设施类，候选仍不足时再开
+
+[[source]]
+id = "hn-show"
+board = "repos"
+name = "Show HN 高分帖（新项目发布流）"
+type = "hn_algolia"
+endpoint = "https://hn.algolia.com/api/v1/search_by_date?tags=show_hn&numericFilters=points%3E100&hitsPerPage=30"
+content = "headline"
+fetch_interval_hours = 11
+enabled = true              # ~3-5 条/天；与 trending 榜互补（发布日即现身，不等攒星）；
+                            # 项目 URL 与 gh_trending 按 canonical 自然合并信号
+
 # —— 第二轮补测新增（2026-07-03）——
 
 [[source]]
@@ -402,7 +446,9 @@ enabled = false             # 第二轮补测可用（2026-07-03）
 # 中文财经源（华尔街见闻/财联社电报/财新等）无公共 RSS，
 # 如需接入待 Phase 2 自建 RSSHub（美股为主后降为可选）。
 
-# ============ 艺术/时尚/设计板块（Phase 2 启用） ============
+# ============ 艺术板块（当代艺术/建筑/视觉文化） ============
+# 2026-07-05 设计三领域（产品/工业/平面）拆分为独立 design 板块，
+# designboom / core77 / itsnicethat / creativeboom 四源随之迁出（见下方设计板块区段）。
 
 [[source]]
 id = "dezeen"
@@ -412,17 +458,7 @@ type = "rss"
 endpoint = "https://www.dezeen.com/feed/"
 content = "fulltext"
 fetch_interval_hours = 6
-enabled = true             # 注意：feed 开头有空白字符，解析前 lstrip
-
-[[source]]
-id = "designboom"
-board = "art"
-name = "designboom"
-type = "rss"
-endpoint = "https://www.designboom.com/feed/"
-content = "fulltext"
-fetch_interval_hours = 6
-enabled = true
+enabled = true             # 注意：feed 开头有空白字符，解析前 lstrip；建筑/空间主力留 art
 
 [[source]]
 id = "colossal"
@@ -515,38 +551,194 @@ content = "headline"
 fetch_interval_hours = 12
 enabled = false             # 官方 RSS 404，Google News 兜底
 
+# 已测不可用（2026-07-03）：Brand New(500)、Frieze(403)、e-flux(404)、
+# The Batch(404)、VentureBeat AI(feed 停更于 2026-05)。alphaXiv API 三次探测均 404。
+
+# ============================================================
+# 设计板块（2026-07-05 新建：产品设计[实体+数字/UX]/工业设计/平面设计。
+# 17 端点实测：12 活 5 死；四源自 art 迁入。与 art(当代艺术/建筑) 错位）
+# ============================================================
+
+# ---- 自 art 迁入（2026-07-05）----
+
+[[source]]
+id = "designboom"
+board = "design"
+name = "designboom"
+type = "rss"
+endpoint = "https://www.designboom.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true             # 产品/工业设计权重高，随拆分迁入
+
 [[source]]
 id = "itsnicethat-gnews"
-board = "art"
+board = "design"
 name = "It's Nice That (via Google News)"
 type = "gnews_rss"
 endpoint = "https://news.google.com/rss/search?q=site:itsnicethat.com&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 12
-enabled = true             # 官方 RSS 404，Google News 兜底
+enabled = true             # 官方 RSS 404，Google News 兜底；平面设计主力
 
 [[source]]
 id = "core77"
-board = "art"
+board = "design"
 name = "Core77"
 type = "rss"
 endpoint = "https://feeds.feedburner.com/core77/blog"
 content = "fulltext"
 fetch_interval_hours = 12
-enabled = true             # 官方站内 RSS 404，FeedBurner 镜像可用
+enabled = true             # 官方站内 RSS 404，FeedBurner 镜像可用；工业设计主力
 
 [[source]]
 id = "creativeboom"
-board = "art"
+board = "design"
 name = "Creative Boom"
 type = "rss"
 endpoint = "https://www.creativeboom.com/feed/"
 content = "fulltext"
 fetch_interval_hours = 12
-enabled = true             # 平面设计主力源，第二轮补测可用（1.4 万字符全文带图）
+enabled = true             # 平面设计主力源（1.4 万字符全文带图）
 
-# 已测不可用（2026-07-03）：Brand New(500)、Frieze(403)、e-flux(404)、
-# The Batch(404)、VentureBeat AI(feed 停更于 2026-05)。alphaXiv API 三次探测均 404。
+# ---- 新增（2026-07-05 实测，节奏=条/天按全 feed 跨度估算）----
+
+[[source]]
+id = "yanko-design"
+board = "design"
+name = "Yanko Design"
+type = "rss"
+endpoint = "https://www.yankodesign.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true             # 工业/产品设计主力，~7 条/天全文
+
+[[source]]
+id = "design-milk"
+board = "design"
+name = "Design Milk"
+type = "rss"
+endpoint = "https://design-milk.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 综合设计（产品/家具/空间），~4 条/天
+
+[[source]]
+id = "fastco-design"
+board = "design"
+name = "Fast Company · Co.Design"
+type = "rss"
+endpoint = "https://www.fastcompany.com/co-design/rss"
+content = "fulltext"
+fetch_interval_hours = 6
+enabled = true             # 产品设计×商业叙事，~4 条/天全文
+
+[[source]]
+id = "uxdesign-cc"
+board = "design"
+name = "UX Collective"
+type = "rss"
+endpoint = "https://uxdesign.cc/feed"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 数字产品/UX 主力（Medium 出版物），~2.5 条/天长文
+
+[[source]]
+id = "nngroup"
+board = "design"
+name = "Nielsen Norman Group"
+type = "rss"
+endpoint = "https://www.nngroup.com/feed/rss/"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true             # UX 研究权威，低频（~2 条/周）高质
+
+[[source]]
+id = "printmag"
+board = "design"
+name = "PRINT Magazine"
+type = "rss"
+endpoint = "https://www.printmag.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 平面设计文化，~1.7 条/天
+
+[[source]]
+id = "creativereview"
+board = "design"
+name = "Creative Review"
+type = "rss"
+endpoint = "https://www.creativereview.co.uk/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+paywall = true
+enabled = true             # 平面/广告/品牌（UK），~3 条/天，部分付费墙
+
+[[source]]
+id = "designweek"
+board = "design"
+name = "Design Week"
+type = "rss"
+endpoint = "https://www.designweek.co.uk/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 设计产业新闻（UK），~1.6 条/天
+
+[[source]]
+id = "abduzeedo"
+board = "design"
+name = "Abduzeedo"
+type = "rss"
+endpoint = "https://abduzeedo.com/rss.xml"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true             # 平面/视觉灵感流，~4 条/天条目短，靠粗筛压噪
+
+[[source]]
+id = "muzli"
+board = "design"
+name = "Muzli Digest"
+type = "rss"
+endpoint = "https://medium.muz.li/feed"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true             # 设计圈日报聚合，~5 条/天，供主编交叉印证
+
+# ---- 备选（活着但暂不启用）----
+
+[[source]]
+id = "smashing"
+board = "design"
+name = "Smashing Magazine"
+type = "rss"
+endpoint = "https://www.smashingmagazine.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 48
+enabled = false            # 偏 web 开发，~0.3 条/天，与 uxdesign-cc 重叠
+
+[[source]]
+id = "uxplanet"
+board = "design"
+name = "UX Planet"
+type = "rss"
+endpoint = "https://uxplanet.org/feed"
+content = "headline"
+fetch_interval_hours = 24
+enabled = false            # Medium，feed 仅 141 字符摘要，uxdesign-cc 已覆盖
+
+[[source]]
+id = "creativebloq"
+board = "design"
+name = "Creative Bloq"
+type = "rss"
+endpoint = "https://www.creativebloq.com/feed"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = false            # ~8 条/天但评测/优惠/教程噪音大，按需启用
+
+# 已测死源（2026-07-05）：Dexigner(/feed 与 /news.rss 均 404)、DesignTAXI(404)、
+# Figma Blog(/blog/feed 与 /blog/rss.xml 均 404)、Brand New atom(停更于 2020)、
+# spotify.design(SSL 证书错误)、It's Nice That 官方 feed(404，继续走 GNews)。
 
 # ============================================================
 # 量化板块（2026-07-04 两轮 29 端点实测；论文走 48h 沉淀，新闻/博客最新）

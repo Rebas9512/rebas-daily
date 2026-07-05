@@ -42,7 +42,8 @@ _BOARD_EN = {
     "data": "DATA",
     "finance": "BUSINESS",
     "quant": "QUANT",
-    "art": "ART & DESIGN",
+    "design": "DESIGN",
+    "art": "ART",
 }
 # raw_items.kind → 前端标签
 _KIND_LABEL = {"paper": "paper", "article": "news", "repo": "repo"}

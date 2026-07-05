@@ -15,7 +15,10 @@ interface Props {
 const { issue } = Astro.props;
 
 // 每板块：headline 缺位时提升首个专题为头条位（主编允许 0 专题不凑数）
-const sections = issue.boards.map((b, i) => {
+// 整板块为空（如板块上线之前的旧期次、全空板）则该区块整段不出现
+const sections = issue.boards
+  .filter((b) => b.headline || b.features.length > 0 || b.briefs.length > 0)
+  .map((b, i) => {
   const lead = b.headline ?? b.features[0] ?? null;
   const side = (b.headline ? b.features : b.features.slice(1)).slice(0, 3);
   const leadHref = lead ? (lead.page ?? lead.url) : null;

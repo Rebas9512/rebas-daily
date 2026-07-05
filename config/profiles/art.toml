@@ -1,16 +1,11 @@
-# 艺术/时尚/设计板块兴趣画像（初稿 2026-07-03，Phase 2 启用板块时细化）
+# 艺术板块兴趣画像（初稿 2026-07-03；2026-07-05 设计三领域拆至 design 板块）
+# 现定位：当代艺术/艺术市场、建筑/空间、视觉文化。
+# 产品/工业/平面设计的兴趣项已随拆分移入 profiles/design.toml——
+# 此处不再保留对应关键词，避免 Dezeen 等综合源的设计类条目在两个板块重复成题。
 
 [board]
 id = "art"
-name = "艺术 · 设计"
-
-# 侧重（用户 2026-07-03 确认）：产品/工业设计、当代艺术/艺术市场、
-# 建筑/空间、平面设计。时尚产业未选 → 降为低权重（源保留不删）。
-
-[[interest]]
-name = "产品 / 工业设计"
-weight = 5
-keywords = ["industrial design", "product design", "furniture", "material"]
+name = "艺术 · 当代艺术/建筑"
 
 [[interest]]
 name = "当代艺术 / 艺术市场"
@@ -19,15 +14,8 @@ keywords = ["exhibition", "auction", "biennale", "contemporary art", "museum"]
 
 [[interest]]
 name = "建筑 / 空间"
-weight = 4
+weight = 5
 keywords = ["architecture", "interior", "urban design", "pavilion"]
-
-[[interest]]
-name = "平面设计"
-weight = 4
-keywords = ["graphic design", "branding", "typography", "visual identity"]
-# 平面设计主力源是 It's Nice That（GNews 兜底）；Phase 2 启用时
-# 候选补测：Creative Boom、Brand New (underconsideration.com)
 
 [[interest]]
 name = "时尚产业"

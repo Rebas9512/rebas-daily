@@ -23,7 +23,8 @@ writer = "gpt-5.5"
 [publish]
 # 2026-07-04 板块拆分：学术只做论文（沉淀 48h 等 OpenAlex），其余板块做最新消息
 # 2026-07-04 加量化板块（论文+新闻混合：q-fin 论文自动沉淀，新闻最新）
-boards = ["academic", "repos", "tech", "data", "finance", "quant", "art"]
+# 2026-07-05 加设计板块（产品/工业/平面，自 art 拆出）
+boards = ["academic", "repos", "tech", "data", "finance", "quant", "design", "art"]
 window_hours = 96            # 取窗下限：published_at 距今不超过 N 小时（无发布时间的按 fetched_at 36h）
 paper_settle_hours = 48      # 论文沉淀期：kind=paper 发布满 N 小时才入刊
                              # 实测（2026-07-04）：OpenAlex 收录 arXiv ~26h 龄 0%、~50h 龄 100%；
