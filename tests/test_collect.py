@@ -124,3 +124,19 @@ class TestInsertSemantics:
         # 未过窗口的处理过条目 → 保持 dup
         conn.execute("UPDATE raw_items SET status='dropped'")
         assert database.insert_item(conn, self._item(), revive_days=14) == "dup"
+
+
+def test_feed_kind_override():
+    """期刊 TOC 源 kind="paper" 覆盖生效；缺省源保持 article（沉淀期口径依赖）。"""
+    from rebas.collect.feeds import parse_feed
+
+    rss = b"""<?xml version="1.0"?><rss version="2.0"><channel>
+        <item><title>Some Paper</title><link>http://j.org/p1</link>
+        <pubDate>Fri, 03 Jul 2026 00:00:00 GMT</pubDate></item>
+        </channel></rss>"""
+    journal = make_source(id="nature", kind="paper")
+    items, _ = parse_feed(journal, rss, conn=None, client=None)
+    assert items[0].kind == "paper"
+    plain = make_source(id="blog")
+    items, _ = parse_feed(plain, rss, conn=None, client=None)
+    assert items[0].kind == "article"

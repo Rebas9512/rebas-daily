@@ -40,6 +40,7 @@ class Source:
     enabled: bool = False
     prefilter: bool = False
     paywall: bool = False
+    kind: str = "article"     # 条目类型覆盖：期刊 TOC 源设 "paper"（PAPER 标签+沉淀期口径）
 
 
 @dataclass(frozen=True)

@@ -1333,3 +1333,81 @@ endpoint = "https://news.google.com/rss/search?q=Qwen+when:7d&hl=zh-CN&gl=CN&cei
 content = "headline"
 fetch_interval_hours = 12
 enabled = false             # Qwen 动态量子位/InfoQ 编辑层已覆盖(实测 63 条/7天)；需要密集追踪再开
+
+# ---- 顶刊直供（2026-07-05 双端实测；RDF/RSS1.0 格式 feedparser 原生支持。
+# kind="paper"：PAPER 标签+48h 沉淀口径与 arXiv 论文一致；enrich/精读按
+# arXiv ID 匹配，期刊 DOI 条目自动跳过不受影响。
+# 已测死：JMLR jmlr.xml(日期仅年份精度，96h 窗口永不命中)、
+# Annals of Statistics projecteuclid(bot 墙)、JASA tandfonline(VPS 403)）----
+
+[[source]]
+id = "nature"
+board = "academic"
+name = "Nature"
+type = "rss"
+endpoint = "https://www.nature.com/nature.rss"
+content = "headline"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 12
+enabled = true              # 旗舰刊滚动出版 ~75 条池（论文+新闻混合），粗筛按画像滤 AI 相关
+
+[[source]]
+id = "nature-mi"
+board = "academic"
+name = "Nature Machine Intelligence"
+type = "rss"
+endpoint = "https://www.nature.com/natmachintell.rss"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 12
+enabled = true              # AI 专刊全对口，低量高信号
+
+[[source]]
+id = "science"
+board = "academic"
+name = "Science"
+type = "rss"
+endpoint = "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=science"
+content = "headline"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+enabled = true              # 周刊 etoc，AI 论文偶发但都是大事件
+
+[[source]]
+id = "science-robotics"
+board = "academic"
+name = "Science Robotics"
+type = "rss"
+endpoint = "https://www.science.org/action/showFeed?type=etoc&feed=rss&jc=scirobotics"
+content = "headline"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+enabled = true              # 月刊 etoc，对口 RL/机器人画像
+
+[[source]]
+id = "jof-wiley"
+board = "quant"
+name = "Journal of Finance"
+type = "rss"
+endpoint = "https://onlinelibrary.wiley.com/feed/15406261/most-recent"
+content = "headline"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+enabled = true              # 金融顶刊 most-recent 流（含 early view），~34 条池低频高信号
+
+[[source]]
+id = "pnas"
+board = "academic"
+name = "PNAS"
+type = "rss"
+endpoint = "https://www.pnas.org/action/showFeed?type=etoc&feed=rss&jc=pnas"
+content = "headline"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+enabled = false             # 备选：全学科 ~87 条池 AI 占比低，噪音/收益比差

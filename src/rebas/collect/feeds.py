@@ -126,6 +126,7 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
         items.append(RawItem(
             source_id=source.id,
             board=source.board,
+            kind=source.kind,
             url=link,
             url_canonical=canonicalize_url(link),
             title=title,
