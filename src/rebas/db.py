@@ -201,12 +201,22 @@ def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) ->
         return "revived" if revived else ("merged" if merged else "dup")
 
 
-def prune_texts(conn: sqlite3.Connection, before_iso: str) -> int:
-    """瘦身：清空指定时间之前条目的大字段，只留题录（见 04 文档 §4）。"""
+def prune_texts(conn: sqlite3.Connection, before_iso: str,
+                pool_exemptions: dict[str, list[str]] | None = None) -> int:
+    """瘦身：清空指定时间之前条目的大字段，只留题录（见 04 文档 §4）。
+
+    pool_exemptions: {池窗截止时间: [source_id]} —— 顶刊池源在池窗内不瘦身，
+    否则池内候选活 30 天、摘要第 8 天就被清空，之后入选只剩标题（2026-07-05 review 发现）。
+    """
+    where = "fetched_at < ? AND (summary IS NOT NULL OR extracted_text IS NOT NULL)"
+    params: list = [before_iso]
+    for cutoff, ids in (pool_exemptions or {}).items():
+        ph = ",".join("?" * len(ids))
+        where += f" AND NOT (source_id IN ({ph}) AND fetched_at >= ?)"
+        params += [*ids, cutoff]
     cur = conn.execute(
-        "UPDATE raw_items SET summary = NULL, extracted_text = NULL"
-        " WHERE fetched_at < ? AND (summary IS NOT NULL OR extracted_text IS NOT NULL)",
-        (before_iso,),
+        f"UPDATE raw_items SET summary = NULL, extracted_text = NULL WHERE {where}",
+        params,
     )
     conn.commit()
     return cur.rowcount

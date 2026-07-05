@@ -130,6 +130,15 @@ def load_config() -> AppConfig:
     )
 
 
+def pooled_source_groups() -> dict[int, list[str]]:
+    """顶刊池源（pool_days > 0）按天数分组——出刊扩窗、清扫豁免、瘦身豁免共用一个口径。"""
+    groups: dict[int, list[str]] = {}
+    for s in load_sources():
+        if s.enabled and s.pool_days > 0:
+            groups.setdefault(s.pool_days, []).append(s.id)
+    return groups
+
+
 def load_sources(enabled_only: bool = False) -> list[Source]:
     raw = tomllib.loads((CONFIG_DIR / "sources.toml").read_text(encoding="utf-8"))
     sources = [Source(**entry) for entry in raw["source"]]

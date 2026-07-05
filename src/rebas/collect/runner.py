@@ -214,10 +214,15 @@ def run_backfill(date: str, source_id: str | None = None) -> list[SourceStats]:
 
 def run_prune(days: int, vacuum: bool = False) -> int:
     """瘦身：清空 N 天前条目的大字段（出刊窗口早已过去，只留题录）。"""
+    from rebas.config import pooled_source_groups
+
     conf = load_config()
     conn = db.init_db(conf.db_path)
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat(timespec="seconds")
-    count = db.prune_texts(conn, cutoff)
+    now = datetime.now(timezone.utc)
+    cutoff = (now - timedelta(days=days)).isoformat(timespec="seconds")
+    exemptions = {(now - timedelta(days=d)).isoformat(timespec="seconds"): ids
+                  for d, ids in pooled_source_groups().items()}
+    count = db.prune_texts(conn, cutoff, pool_exemptions=exemptions)
     # gnews 解析缓存 30 天过期（含负缓存），防 cron 长期运行无限膨胀
     cache_cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
     db.prune_gnews_cache(conn, cache_cutoff)

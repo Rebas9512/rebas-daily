@@ -247,3 +247,94 @@ def test_window_clause_journal_pool(tmp_path):
     got2 = {r["title"] for r in conn.execute(
         f"SELECT title FROM raw_items WHERE {clause2}", params2)}
     assert "jmlr-10" not in got2
+
+
+def test_openalex_dup_merge_and_lookup():
+    """同题重复记录合并（时效取新+arXiv 取有）；DOI-only 记录走 arXiv 标题检索兜底。"""
+    from rebas.collect.journals import parse_openalex_journal
+
+    payload = {"results": [
+        # 同一篇论文的两条记录：新 DOI-only + 旧 arXiv 版（07-06 期 JASA 实况）
+        {"display_name": "Anytime-Valid Inference in Linear Models",
+         "created_date": "2026-06-24", "doi": "https://doi.org/10.1080/yy",
+         "locations": [], "authorships": []},
+        {"display_name": "Anytime Valid Inference in Linear Models",
+         "created_date": "2022-10-20", "doi": "https://doi.org/10.1080/yy",
+         "locations": [{"landing_page_url": "https://arxiv.org/abs/2210.08589"}],
+         "authorships": [{"author": {"display_name": "M. Lindon"}}]},
+        # 纯 DOI 记录 → 标题检索兜底命中
+        {"display_name": "Lonely Paper Without Locations",
+         "created_date": "2026-07-01", "doi": "https://doi.org/10.1080/zz",
+         "locations": [], "authorships": []},
+    ]}
+
+    class FakeResp:
+        status_code = 200
+        text = """<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+            <id>http://arxiv.org/abs/2507.11111v2</id>
+            <title>Lonely Paper Without  Locations</title></entry></feed>"""
+
+    class FakeClient:
+        def get(self, url):
+            return FakeResp()
+
+    src = make_source(id="oa-test", board="data", type="openalex_journal")
+    items, _ = parse_openalex_journal(src, json.dumps(payload).encode(),
+                                      conn=None, client=FakeClient())
+    assert len(items) == 2                                     # 三条记录 → 两篇论文
+    a = next(i for i in items if "2210.08589" in i.url)
+    assert a.published_at.startswith("2026-06-24")             # 时效取最新记录
+    assert a.signals["doi"] == "https://doi.org/10.1080/yy"    # DOI 保留在信号
+    assert a.author == "M. Lindon"                             # 作者从旧记录补齐
+    b = next(i for i in items if "Lonely" in i.title)
+    assert b.url == "https://arxiv.org/abs/2507.11111"         # 检索兜底命中
+
+
+def test_prune_pool_exemption(tmp_path):
+    """瘦身豁免：顶刊池源在池窗内保留摘要，非池源与出池条目照常清空。"""
+    conn = database.init_db(tmp_path / "t.sqlite")
+    now = datetime.now(timezone.utc)
+
+    def put(source_id, days_ago):
+        database.insert_item(conn, RawItem(
+            source_id=source_id, board="data", kind="paper",
+            url=f"http://x/{source_id}/{days_ago}", url_canonical=f"http://x/{source_id}/{days_ago}",
+            title=f"{source_id}-{days_ago}", summary="摘要在此"))
+        conn.execute("UPDATE raw_items SET fetched_at=? WHERE url_canonical=?",
+                     ((now - timedelta(days=days_ago)).isoformat(timespec="seconds"),
+                      f"http://x/{source_id}/{days_ago}"))
+        conn.commit()
+
+    put("oa-jasa", 10)     # 池内（10 天 < 30）→ 保留
+    put("oa-jasa", 40)     # 出池 → 清空
+    put("blog", 10)        # 非池源过 7 天 → 清空
+
+    cutoff = (now - timedelta(days=7)).isoformat(timespec="seconds")
+    pool_cut = (now - timedelta(days=30)).isoformat(timespec="seconds")
+    n = database.prune_texts(conn, cutoff, pool_exemptions={pool_cut: ["oa-jasa"]})
+    assert n == 2
+    kept = {r["title"] for r in conn.execute(
+        "SELECT title FROM raw_items WHERE summary IS NOT NULL")}
+    assert kept == {"oa-jasa-10"}
+
+
+def test_openalex_url_change_guard(tmp_path):
+    """已以 DOI 入库的论文，本轮合并出 arXiv URL → 跳过不重复入池。"""
+    from rebas.collect.journals import parse_openalex_journal
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    from rebas.collect.base import content_hash
+    database.insert_item(conn, RawItem(
+        source_id="oa-test", board="data", kind="paper",
+        url="https://doi.org/10.1080/yy", url_canonical="https://doi.org/10.1080/yy",
+        title="Anytime-Valid Inference in Linear Models",
+        content_hash=content_hash("Anytime-Valid Inference in Linear Models")))
+    payload = {"results": [
+        {"display_name": "Anytime-Valid Inference in Linear Models",
+         "created_date": "2026-07-04", "doi": "https://doi.org/10.1080/yy",
+         "locations": [{"landing_page_url": "https://arxiv.org/abs/2210.08589"}],
+         "authorships": []},
+    ]}
+    src = make_source(id="oa-test", board="data", type="openalex_journal")
+    items, _ = parse_openalex_journal(src, json.dumps(payload).encode(), conn=conn)
+    assert items == []      # 跨 URL 重复被拦下

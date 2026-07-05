@@ -152,11 +152,16 @@ def run_publish(date: str | None = None, force_stage: str | None = None,
                 conn.execute(
                     "UPDATE issues SET status=?, updated_at=? WHERE issue_date=?",
                     (status, utcnow_iso(), issue_date))
-                # 收尾瘦身：7 天前条目只留题录（见 04 文档 §4）
+                # 收尾瘦身：7 天前条目只留题录（见 04 文档 §4）；顶刊池源在池窗内豁免
                 from datetime import timedelta, timezone
-                cutoff = (datetime.now(timezone.utc)
-                          - timedelta(days=7)).isoformat(timespec="seconds")
-                pruned = db.prune_texts(conn, cutoff)
+
+                from rebas.config import pooled_source_groups
+                now_utc = datetime.now(timezone.utc)
+                cutoff = (now_utc - timedelta(days=7)).isoformat(timespec="seconds")
+                exemptions = {
+                    (now_utc - timedelta(days=d)).isoformat(timespec="seconds"): ids
+                    for d, ids in pooled_source_groups().items()}
+                pruned = db.prune_texts(conn, cutoff, pool_exemptions=exemptions)
                 if pruned:
                     log(f"[prune] 瘦身 {pruned} 条（>7 天前的大字段已清）")
                 cache_cutoff = (datetime.now(timezone.utc)

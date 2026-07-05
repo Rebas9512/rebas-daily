@@ -17,7 +17,7 @@ from rebas.agents.prompts import (
     reader_block, render_prompt, signals_str,
 )
 from rebas.collect.base import first_image, make_client, strip_html, utcnow_iso
-from rebas.config import AppConfig, Profile, load_secrets, load_sources
+from rebas.config import AppConfig, Profile, load_secrets, load_sources, pooled_source_groups
 from rebas.llm import LLMBackend, complete_json
 
 _THREAD_KEY_RE = re.compile(r"[^a-z0-9-]+")
@@ -98,14 +98,8 @@ def sweep_paper_cache(conf: AppConfig, days: int = 3) -> int:
     return removed
 
 
-def _pooled_source_groups() -> dict[int, list[str]]:
-    """顶刊池源（pool_days > 0）按天数分组。期刊论文时效跨度长：
-    候选在出刊窗保留 pool_days 天（近似"到下一期期刊出来"），落选不被主编清扫。"""
-    groups: dict[int, list[str]] = {}
-    for s in load_sources():
-        if s.enabled and s.pool_days > 0:
-            groups.setdefault(s.pool_days, []).append(s.id)
-    return groups
+# 顶刊池源分组（出刊扩窗/清扫豁免/瘦身豁免共用），实现挪到 config 供采集层复用
+_pooled_source_groups = pooled_source_groups
 
 
 def _window_clause(conf: AppConfig, include_pool: bool = True,
@@ -341,7 +335,8 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
     rows = conn.execute(
         f"SELECT id, kind, title, summary, source_id, signals, extracted_text"
         f" FROM raw_items WHERE board=? AND status='screened' AND {clause}"
-        f" ORDER BY CAST(json_extract(signals,'$.screen_score') AS INTEGER) DESC"
+        f" ORDER BY CAST(json_extract(signals,'$.screen_score') AS INTEGER) DESC,"
+        f"          fetched_at DESC"    # 同分新鲜优先：防顶刊池陈货挤占 editor_top 坑位
         f" LIMIT ?", [board, *params, conf.editor_top]).fetchall()
     if not rows:
         return {"skipped": "无入围候选"}
@@ -527,8 +522,16 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
                 (issue_date, board)).fetchall()
             for t in feats:
                 rows = _topic_items(conn, t)
-                target = next((r for r in rows if r["kind"] == "paper"), None)
-                aid = _arxiv_id(target["url"], target["url_canonical"]) if target else None
+                # 取首个"带 arXiv id"的论文条目——期刊条目可能是 DOI 链接（抓不到原文），
+                # 同选题里的 arXiv 版不应被它挡住
+                target = aid = None
+                for r in rows:
+                    if r["kind"] != "paper":
+                        continue
+                    a = _arxiv_id(r["url"], r["url_canonical"])
+                    if a:
+                        target, aid = r, a
+                        break
                 if not aid:
                     continue
                 conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
@@ -794,11 +797,13 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 materials_block=materials_block(rows, per_item_limit=6000,
                                                 fulltext=fulltext))
         result = complete_json(backend, prompt, role="writer")
+        # 防御性清洗：文末孤立的空标题标记（模型输出截断残渣，避免渲染出空标题）
+        body_md = re.sub(r"(?:\n#{1,6}[ \t]*)+\s*$", "", (result.get("body_md") or "")).rstrip()
         conn.execute(
             "INSERT INTO articles (topic_id, card_summary, body_md, credibility_notes,"
             " image_refs, model_meta, created_at) VALUES (?,?,?,?,?,?,?)",
             (t["id"], strip_html(result.get("card_summary", ""))[:200],
-             result.get("body_md", ""), t["check_notes"],
+             body_md, t["check_notes"],
              json.dumps([r["image_url"] for r in rows if r["image_url"]][:3]),
              json.dumps({"role": "writer", "elapsed_s": round(time.time() - t0, 1),
                          "material_chars": material_total}),
