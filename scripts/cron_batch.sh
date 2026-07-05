@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# 四批备刊模型（达拉斯时间，见 README 部署段）：
+# 备刊批次模型（达拉斯时间，见 README 部署段）：
 #   批1 00:01  翻牌今日刊 + 自愈 + 备明日刊(学术+艺术)   ← 慢内容，对隔天见刊最不敏感
-#   批2 05:00  备明日刊(开源+数据)
-#   批3 10:00  备明日刊(量化)
+#   批2 05:00  备明日刊(开源+数据；累积带上批1板块=顺延其未完成的)
+#   批3 10:00  备明日刊(量化；累积带上批1-2板块)
 #   批4 15:00  备明日刊(全板块收尾：科技+商业 + 补齐之前批次失败的板块)  ← 美股收盘
+#   批5 20:00  兜底收尾：批4没做完(额度耗尽/中途失败)时补完剩余
 # 每批 ≈15-25 次 LLM 调用，正好落在 Codex 订阅的一个 5 小时额度窗口内。
+# 顺延/兜底不做显式检测：靠 issue 状态检查点 + 板块级幂等守卫——做过的
+# 零 token 跳过、没做完的自动重试，一切正常时批5是纯空转。
 #
-# 用法: cron_batch.sh <1|2|3|4>
+# 用法: cron_batch.sh <1|2|3|4|5>
 # 可选环境变量:
 #   HEALTHCHECK_URL  healthchecks.io 死人开关前缀，成功后拼上批号 ping 对应 check。
 #                    形如 https://hc-ping.com/<ping-key>/rebas-batch-（末尾连字符），
-#                    对应 4 个 check 的 slug = rebas-batch-1 .. rebas-batch-4。
+#                    对应 check 的 slug = rebas-batch-1 .. rebas-batch-5。
 #                    注意不能用单 check 的 UUID 直拼——/1 会被判成失败退出码。
 #   DEPLOY_CMD       翻牌后执行的部署命令（如推 GitHub/Cloudflare Pages）
 #   REBAS_NPM        npm 路径（cron 精简 PATH 找不到 nvm 时用）
@@ -23,7 +26,7 @@ cd "$ROOT"
 REBAS=".venv/bin/rebas"
 LOG_DIR="$ROOT/data/logs"
 mkdir -p "$LOG_DIR"
-BATCH="${1:?用法: cron_batch.sh <1|2|3|4>}"
+BATCH="${1:?用法: cron_batch.sh <1|2|3|4|5>}"
 TOMORROW="$(date -d tomorrow +%F)"
 
 # 批次间互斥（publish 自带进程锁，这里连 collect 一起罩住）
@@ -42,11 +45,16 @@ case "$BATCH" in
     if [ -n "${DEPLOY_CMD:-}" ]; then $DEPLOY_CMD; fi
     $REBAS publish --date "$TOMORROW" --boards academic,art
     ;;
-  2) $REBAS publish --date "$TOMORROW" --boards repos,data ;;
-  3) $REBAS publish --date "$TOMORROW" --boards quant ;;
+  2) $REBAS publish --date "$TOMORROW" --boards academic,art,repos,data ;;
+     # 累积带上批1板块：批1若因额度耗尽/失败没做完，这里顺延重试（做过的幂等跳过，
+     # 空板块还能吃到本批新采集的候选）
+  3) $REBAS publish --date "$TOMORROW" --boards academic,art,repos,data,quant ;;
   4) $REBAS publish --date "$TOMORROW" --refill ;;
      # 全板块收尾：科技+商业+扫尾，推进状态；--refill=补充轮，
      # 前三批备的板块若选题<refill_min_topics，用白天新采集的候选补选（选题够则不动）
+  5) $REBAS publish --date "$TOMORROW" --refill ;;
+     # 兜底收尾=批4的重试：批4完成时状态已推进到 rendered，全阶段跳过零 token 空转；
+     # 批4半途而废（额度耗尽等）时从状态断点补完剩余板块/稿件并推进状态
   *) echo "未知批次 $BATCH"; exit 1 ;;
 esac
 

@@ -31,7 +31,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - `data/rebas.sqlite` —— 原始池 + 管线产物（gitignored）；`data/paper_cache/` = 精读原文临时缓存（writer 用完即删，prune 兜底清扫）
 - `.codex/`、`.secrets/` —— 凭证（gitignored，chmod 700）
 
-## 云端部署（四批备刊模型）
+## 云端部署（四主批 + 兜底批备刊模型）
 
 **架构**：站点 = Cloudflare Pages 免费层（wrangler 直传）；管线 = $5-7/月 VPS（**零入站端口**——只出站抓源/调 LLM/推 Pages）。
 
@@ -40,18 +40,19 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 | 达拉斯时刻 | 批次 | 内容 |
 |---|---|---|
 | 00:01 | 批1 | 翻牌今日刊 + 自愈补齐 + 部署 + 备明日（学术+艺术，慢内容） |
-| 05:00 | 批2 | 备明日（开源+数据） |
-| 10:00 | 批3 | 备明日（量化） |
+| 05:00 | 批2 | 备明日（开源+数据；`--boards` 累积带上批1板块=顺延其未完成的） |
+| 10:00 | 批3 | 备明日（量化；累积带上批1-2板块） |
 | 15:00 | 批4 | 备明日（科技+商业=美股收盘后最鲜）+ 全板块收尾扫尾 + **补充轮**（--refill：前三批备的板块若选题 < refill_min_topics，用白天新采集的候选补选不重复的新选题；选题够则不动） |
+| 20:00 | 批5 | **兜底收尾**=批4的重试：批4因额度耗尽/中途失败没做完时，从状态断点补完剩余并推进状态；一切正常时零 token 空转（实测 0.7 秒） |
 
-机制：`publish --boards a,b` = 部分模式（只跑指定板块、不推进状态不渲染）；收尾批幂等扫尾 + `--refill` 补充轮兜底薄板块；导出层发布闸门只出 `issue_date ≤ 达拉斯今天` 的期次。
+机制：`publish --boards a,b` = 部分模式（只跑指定板块、不推进状态不渲染）；收尾批幂等扫尾 + `--refill` 补充轮兜底薄板块；导出层发布闸门只出 `issue_date ≤ 达拉斯今天` 的期次。**顺延/兜底不做显式额度检测**：靠 issue 状态检查点 + 板块级幂等守卫——做过的零 token 跳过，没做完的自动重试。
 
 **部署三步**（脚本在 `scripts/`，Ubuntu 24.04）：
 1. 本机首次搬家：`scripts/vps_sync.sh --with-secrets root@<ip>`（之后日常推代码不带 `--with-secrets`——VPS 是数据与凭证唯一正本）
 2. VPS 一键就绪：`bash /opt/rebas_daily/scripts/vps_bootstrap.sh`（时区/Node 22/codex+wrangler/venv/冒烟/装 crontab，幂等）
 3. Cloudflare API Token（Pages:Edit）+ Account ID 追加进 `.secrets/.env`；跑 `bash scripts/cron_batch.sh 4` 验证全链路
 
-监控：healthchecks.io 建 4 个 check（`rebas-batch-1..4`，Period 1d / Grace 1h），crontab 设 `HEALTHCHECK_URL=https://hc-ping.com/<ping-key>/rebas-batch-`（末尾连字符；勿用单 check UUID 直拼——批号会被判成失败退出码）。
+监控：healthchecks.io 建 5 个 check（`rebas-batch-1..5`，Period 1d / Grace 1h），crontab 设 `HEALTHCHECK_URL=https://hc-ping.com/<ping-key>/rebas-batch-`（末尾连字符；勿用单 check UUID 直拼——批号会被判成失败退出码）。rebas-batch-5 未建时 ping 404 被 `|| true` 吞掉，不影响批次本身。
 
 ## 接 cron / 运维须知
 

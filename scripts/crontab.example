@@ -1,4 +1,4 @@
-# rebas_daily 四批备刊 crontab（服务器系统时区需设为 America/Chicago，
+# rebas_daily 备刊 crontab：四主批 + 20:00 兜底批（服务器系统时区需设为 America/Chicago，
 # 或用支持 CRON_TZ 的 cron 实现取消注释下一行）
 # CRON_TZ=America/Chicago
 #
@@ -14,6 +14,7 @@
 0  5  * * *  /opt/rebas_daily/scripts/cron_batch.sh 2 >> /opt/rebas_daily/data/logs/batch.log 2>&1
 0  10 * * *  /opt/rebas_daily/scripts/cron_batch.sh 3 >> /opt/rebas_daily/data/logs/batch.log 2>&1
 0  15 * * *  /opt/rebas_daily/scripts/cron_batch.sh 4 >> /opt/rebas_daily/data/logs/batch.log 2>&1
+0  20 * * *  /opt/rebas_daily/scripts/cron_batch.sh 5 >> /opt/rebas_daily/data/logs/batch.log 2>&1
 
 # 日志月度截断（可选）
 0  1  1 * *  tail -c 1M /opt/rebas_daily/data/logs/batch.log > /tmp/b.log && mv /tmp/b.log /opt/rebas_daily/data/logs/batch.log
