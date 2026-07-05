@@ -337,7 +337,7 @@ type = "rss"
 endpoint = "https://www.cnbc.com/id/100003114/device/rss/rss.html"
 content = "headline"
 fetch_interval_hours = 2
-enabled = true
+enabled = false             # 源活着但 Akamai 拦数据中心 IP：VPS 403 / 本机 200（2026-07-05 双端实测）；换非 Hetzner 出口或 gnews 兜底可复活
 
 [[source]]
 id = "marketwatch-top"
@@ -682,7 +682,7 @@ type = "rss"
 endpoint = "https://www.designweek.co.uk/feed/"
 content = "fulltext"
 fetch_interval_hours = 12
-enabled = true             # 设计产业新闻（UK），~1.6 条/天
+enabled = false            # 设计产业新闻（UK），~1.6 条/天；源活着但 CF 对数据中心 IP 出 JS 挑战：VPS 403 / 本机 200（2026-07-05 双端实测）
 
 [[source]]
 id = "abduzeedo"
