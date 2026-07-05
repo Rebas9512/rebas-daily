@@ -24,8 +24,10 @@ class TestPromptTemplates:
         assert '{"scores"' in screen and "覆盖全部 2 条" in screen
         editor = render_prompt("editor", board_name=p.name, issue_date="2026-07-03",
                                count=2, profile_block=pb, feature_cap=4,
+                               existing_block="（本期该板块尚无选题——常规选题轮）",
                                recent_threads_block="（空）", items_block="[1] ...")
         assert "thread_key" in editor and "材料深度决定篇幅" in editor
+        assert "本期已有选题" in editor
         checker = render_prompt("checker", topic_title="T", materials_block="[S1] ...")
         assert "multi|single|uncertain" in checker
         researcher = render_prompt("researcher", board_name=p.name,
@@ -296,3 +298,47 @@ def test_checker_background_review(tmp_path):
     # 幂等：已审的不再进清单（FakeBackend 无剩余输出，再调用会炸 → 证明没调）
     assert stage_checker(conn, load_config(), backend, "data",
                          "2026-01-01") == {"checked": 0}
+
+
+class TestEditorRefill:
+    """补充轮（2026-07-05）：门控逻辑不打模型即可验证。"""
+
+    def _setup(self, tmp_path, n_topics):
+        from rebas import db as database
+        conn = database.init_db(tmp_path / "t.sqlite")
+        conn.execute("INSERT INTO issues (issue_date, status, updated_at)"
+                     " VALUES ('2026-07-06', 'pending', 'x')")
+        for i in range(n_topics):
+            conn.execute(
+                "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+                " decision, created_at) VALUES ('2026-07-06','art',?,?,'[]','brief','x')",
+                (f"T{i}", f"k{i}"))
+        return conn
+
+    def _profile(self):
+        return Profile(board="art", name="艺术", interests=(),
+                       reader_assumed="", reader_explain="")
+
+    def test_enough_topics_skips(self, tmp_path):
+        from rebas.agents.stages import stage_editor
+        from rebas.config import load_config
+        conn = self._setup(tmp_path, 6)      # refill_min_topics=6 → 已足
+        s = stage_editor(conn, load_config(), None, "art", self._profile(),
+                         "艺术", "2026-07-06", refill=True)
+        assert "选题充足" in s["skipped"]
+
+    def test_thin_board_but_no_candidates(self, tmp_path):
+        from rebas.agents.stages import stage_editor
+        from rebas.config import load_config
+        conn = self._setup(tmp_path, 3)      # 少于阈值 → 进补选，但池子空
+        s = stage_editor(conn, load_config(), None, "art", self._profile(),
+                         "艺术", "2026-07-06", refill=True)
+        assert s["skipped"] == "无入围候选"
+
+    def test_without_refill_flag_keeps_old_behavior(self, tmp_path):
+        from rebas.agents.stages import stage_editor
+        from rebas.config import load_config
+        conn = self._setup(tmp_path, 1)
+        s = stage_editor(conn, load_config(), None, "art", self._profile(),
+                         "艺术", "2026-07-06")
+        assert s["skipped"] == "topics 已存在"

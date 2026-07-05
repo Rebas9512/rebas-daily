@@ -44,7 +44,9 @@ case "$BATCH" in
     ;;
   2) $REBAS publish --date "$TOMORROW" --boards repos,data ;;
   3) $REBAS publish --date "$TOMORROW" --boards quant ;;
-  4) $REBAS publish --date "$TOMORROW" ;;   # 全板块收尾：科技+商业+扫尾，推进状态
+  4) $REBAS publish --date "$TOMORROW" --refill ;;
+     # 全板块收尾：科技+商业+扫尾，推进状态；--refill=补充轮，
+     # 前三批备的板块若选题<refill_min_topics，用白天新采集的候选补选（选题够则不动）
   *) echo "未知批次 $BATCH"; exit 1 ;;
 esac
 

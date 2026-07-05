@@ -87,6 +87,8 @@ class AppConfig:
     brief_length: int
     site_keep_days: int
     paper_fulltext_max_chars: int
+    paper_deepread_length: int
+    refill_min_topics: int
 
     @property
     def db_path(self) -> Path:
@@ -121,6 +123,8 @@ def load_config() -> AppConfig:
         brief_length=int(publish.get("brief_length", 300)),
         site_keep_days=int(publish.get("site_keep_days", 7)),
         paper_fulltext_max_chars=int(publish.get("paper_fulltext_max_chars", 40_000)),
+        paper_deepread_length=int(publish.get("paper_deepread_length", 1800)),
+        refill_min_topics=int(publish.get("refill_min_topics", 6)),
     )
 
 

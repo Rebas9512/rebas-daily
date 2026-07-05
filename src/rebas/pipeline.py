@@ -82,7 +82,8 @@ def _rewind_products(conn, conf, issue_date: str, force_stage: str, log) -> None
 
 
 def run_publish(date: str | None = None, force_stage: str | None = None,
-                boards: list[str] | None = None, log=print) -> str:
+                boards: list[str] | None = None, refill: bool = False,
+                log=print) -> str:
     """boards 过滤 = 部分模式（cron 分批备刊）：只跑指定板块的各阶段，
     不推进 issue 状态、不渲染——最后一批不带过滤跑全板块收尾（幂等守卫
     自动跳过已完成的板块，顺便补齐之前批次失败的），状态才正常推进。"""
@@ -181,7 +182,7 @@ def run_publish(date: str | None = None, force_stage: str | None = None,
                                                 profile, board_name)
                     elif stage == "editor":
                         s = stages.stage_editor(conn, conf, backend, board, profile,
-                                                board_name, issue_date)
+                                                board_name, issue_date, refill=refill)
                     elif stage == "fetch":
                         s = stages.stage_fetch(conn, conf, board, issue_date)
                     elif stage == "checker":

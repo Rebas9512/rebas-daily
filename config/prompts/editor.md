@@ -11,6 +11,9 @@ ${profile_block}
 5. thread_key 命名：小写英文-连字符-稳定实体词（如 "qwen-agentworld-release"），跨日报道同一事件时必须能产生相同的 key。
 6. **标题和理由都是给读者看的刊物文案，不是论文标题**：专题 title ≤22 字、先钩子后信息，可用冒号副题（"WorldDirector：让镜头外的世界继续存在"，而非"用持久动态记忆构建可控视频世界模拟器"）；brief 的 reason 一句话说清"为什么值得你花十秒知道"，说人话，不用论文腔。
 
+## 本期已有选题
+${existing_block}
+
 ## 近 7 天已报道清单（避免重复选题；有实质新进展才可再选，并填 update_of_thread）
 ${recent_threads_block}
 

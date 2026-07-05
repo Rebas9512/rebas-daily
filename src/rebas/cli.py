@@ -118,13 +118,16 @@ def publish(
     boards: str = typer.Option(
         None, "--boards",
         help="逗号分隔板块列表=部分模式（cron 分批备刊）：只跑这些板块，不推进状态不渲染"),
+    refill: bool = typer.Option(
+        False, "--refill",
+        help="补充轮（收尾批用）：选题少于 refill_min_topics 的板块用当日新候选补选"),
 ) -> None:
     """出刊管线：粗筛 → 主编 → 取材 → 核查 → 撰写 → 渲染。"""
     from rebas.pipeline import run_publish
 
     board_list = [b.strip() for b in boards.split(",") if b.strip()] if boards else None
     status = run_publish(date=date, force_stage=force_stage, boards=board_list,
-                         log=typer.echo)
+                         refill=refill, log=typer.echo)
     typer.echo(f"publish 完成，issue status = {status}")
 
 

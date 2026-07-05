@@ -295,10 +295,20 @@ def _normalize_thread_key(key: str) -> str:
 
 
 def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
-                 profile: Profile, board_name: str, issue_date: str) -> dict:
-    if conn.execute("SELECT 1 FROM topics WHERE issue_date=? AND board=? LIMIT 1",
-                    (issue_date, board)).fetchone():
-        return {"skipped": "topics 已存在"}
+                 profile: Profile, board_name: str, issue_date: str,
+                 refill: bool = False) -> dict:
+    """常规轮：板块无选题时做当日选题。补充轮（refill=True，收尾批用）：
+    板块已有选题但少于 refill_min_topics 时，用白天新采集的候选补选不重复的新选题——
+    给凌晨备刊时候选太薄的板块一个当日翻盘机会；选题已足则不动。"""
+    existing = conn.execute(
+        "SELECT thread_key, title, decision, slot FROM topics"
+        " WHERE issue_date=? AND board=? ORDER BY id", (issue_date, board)).fetchall()
+    if existing:
+        if not refill:
+            return {"skipped": "topics 已存在"}
+        if not conf.refill_min_topics or len(existing) >= conf.refill_min_topics:
+            return {"skipped": f"补充轮：已有 {len(existing)} 题，选题充足不补"}
+    supplement = bool(existing)
 
     clause, params = _window_clause(conf)
     rows = conn.execute(
@@ -326,14 +336,27 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
     recent_block = "\n".join(f"- {r['thread_key']}: {r['title']}" for r in recent) \
         or "（空——近 7 天无出刊记录）"
 
+    if supplement:
+        existing_block = (
+            "本轮是【补充轮】：本期该板块已定稿下列选题（可能已成文），白天新采集的候选"
+            "补进来了。你只负责挑出与已有事件线**不重复**的新增选题；饱和度自己判断——"
+            "没有值得补的就返回空 topics，绝不为凑数硬选。已有头条时不要再给 headline。\n"
+            + "\n".join(f"- [{r['decision']}] {r['thread_key']}: {r['title']}"
+                        for r in existing))
+    else:
+        existing_block = "（本期该板块尚无选题——常规选题轮）"
+
     prompt = render_prompt(
         "editor", board_name=board_name, issue_date=issue_date, count=len(lines),
         profile_block=profile_block(profile), feature_cap=conf.feature_cap,
+        existing_block=existing_block,
         recent_threads_block=recent_block, items_block="\n".join(lines))
     result = complete_json(backend, prompt, role="editor")
 
     now = utcnow_iso()
-    features = briefs = 0
+    feat_total = sum(1 for r in existing if r["decision"] == "feature")
+    has_headline = any(r["slot"] == "headline" for r in existing)
+    new_feat = new_brief = 0
     selected_ids: set[int] = set()
     for t in result.get("topics") or []:
         if not isinstance(t, dict):        # 字段级容错：单条非法跳过
@@ -345,33 +368,45 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
         if decision not in ("feature", "brief"):
             continue
         if decision == "feature":
-            if features >= conf.feature_cap:
-                decision = "brief"      # 超配额的降为速览
+            if feat_total >= conf.feature_cap:
+                decision = "brief"      # 超配额的降为速览（补充轮连同已有专题一起计数）
             else:
-                features += 1
+                feat_total += 1
+        slot = t.get("slot") if decision == "feature" else None
+        if slot == "headline" and has_headline:
+            slot = "regular"            # 补充轮不夺已有头条
         cur = conn.execute(
             "INSERT OR IGNORE INTO topics (issue_date, board, title, thread_key,"
             " item_ids, decision, slot, target_length, needs_image, update_of_thread,"
             " reason, score, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (issue_date, board, (t.get("title") or "")[:200],
              _normalize_thread_key(t.get("thread_key") or ""),
-             json.dumps(item_ids), decision,
-             t.get("slot") if decision == "feature" else None,
+             json.dumps(item_ids), decision, slot,
              t.get("target_length") if decision == "feature" else None,
              1 if t.get("needs_image") else 0,
              t.get("update_of_thread"), (t.get("reason") or "")[:300], None, now))
         if cur.rowcount == 0:              # 撞 (issue_date,board,thread_key) 唯一索引
             if decision == "feature":
-                features -= 1
+                feat_total -= 1
             continue
-        if decision == "brief":
-            briefs += 1
+        if decision == "feature":
+            new_feat += 1
+            if slot == "headline":
+                has_headline = True
+        else:
+            new_brief += 1
         selected_ids.update(item_ids)
 
+    features, briefs = new_feat, new_brief
     if features + briefs == 0:
-        # 主编空产出（合法 JSON 但零有效选题）：不消费候选、不推进状态，
-        # 抛错让编排层记为板块失败，下次续跑重试（防静默空板+毁池）
         conn.rollback()
+        if supplement:
+            # 补充轮零新增是合法结论（没有值得补的）：不消费候选（screened 留给明天），
+            # 不算失败
+            return {"refill": "无值得补充的新选题",
+                    "notes": (result.get("notes") or "")[:120]}
+        # 常规轮空产出（合法 JSON 但零有效选题）：不消费候选、不推进状态，
+        # 抛错让编排层记为板块失败，下次续跑重试（防静默空板+毁池）
         raise RuntimeError(
             f"editor 零有效选题（notes: {(result.get('notes') or '')[:80]}）")
 
@@ -389,13 +424,19 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
     layout.setdefault("notes", {})
     if not isinstance(layout["notes"], dict):   # 兼容旧格式（字符串）
         layout["notes"] = {"_legacy": layout["notes"]}
-    layout["notes"][board] = result.get("notes") or ""
+    note = result.get("notes") or ""
+    if supplement and layout["notes"].get(board):
+        note = f"{layout['notes'][board]} ｜ 补充轮：{note}"
+    layout["notes"][board] = note
     conn.execute(
         "UPDATE issues SET layout=?, updated_at=? WHERE issue_date=?",
         (json.dumps(layout, ensure_ascii=False), now, issue_date))
     conn.commit()
-    return {"features": features, "briefs": briefs,
-            "notes": (result.get("notes") or "")[:120]}
+    stats = {"features": features, "briefs": briefs,
+             "notes": (result.get("notes") or "")[:120]}
+    if supplement:
+        stats["refill"] = f"补充 {features} 专题 {briefs} 速览"
+    return stats
 
 
 # ---------- Stage 3 取材（代码，非 agent） ----------
@@ -710,6 +751,9 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
             target = t["target_length"] or 1000
             if material_total < THIN_MATERIAL_CHARS:
                 target = min(target, THIN_LENGTH_CAP)
+            if fulltext and conf.paper_deepread_length:
+                # 精读专题：篇幅放宽，目标是把论文讲明白（材料有原文撑得起）
+                target = max(target, conf.paper_deepread_length)
             prompt = render_prompt(
                 "writer", board_name=board_name, topic_title=t["title"],
                 reason=t["reason"] or "（主编未附理由）", target_length=target,
