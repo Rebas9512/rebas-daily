@@ -1124,3 +1124,212 @@ endpoint = "https://locallyoptimistic.com/feed/"
 content = "fulltext"
 fetch_interval_hours = 48
 enabled = false             # 2025-08 后未更
+
+# ============================================================
+# 国际视野扩展（2026-07-05 三轮 27 端点双端实测[本机+VPS 全一致]：
+# 中国 AI/科技媒体、日欧 AI 实验室、中国大厂工程博客、日欧设计媒体与奖项流。
+# 死源：机器之心(RSS 变 SPA + Google News when:7d 索引 0 条，内容主发微信)、
+# mistral.ai/feed.xml 与 sakana.ai/rss.xml 均 404(走 gnews)、
+# qwenlm.github.io/blog 停更于 2025-09(博客迁 qwen.ai 无 RSS)、
+# domusweb.it RSS 已死(feeds.html 404，走 gnews)）
+# ============================================================
+
+# ---- 科技板块：中国 AI 媒体 + 中日欧实验室 ----
+
+[[source]]
+id = "qbitai"
+board = "tech"
+name = "量子位"
+type = "rss"
+endpoint = "https://www.qbitai.com/feed"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true              # 中国 AI 媒体主力，~10 条/天；feed 仅标题，lazy fetch
+
+[[source]]
+id = "infoq-cn"
+board = "tech"
+name = "InfoQ 中文"
+type = "rss"
+endpoint = "https://www.infoq.cn/feed"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # 中文工程/架构+AI 产业报道，~10 条/天
+
+[[source]]
+id = "gnews-deepseek"
+board = "tech"
+name = "DeepSeek (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=DeepSeek+when:7d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # DeepSeek 无官方 RSS/博客，中文媒体事件流兜底
+
+[[source]]
+id = "gnews-mistral"
+board = "tech"
+name = "Mistral AI (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:mistral.ai&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # 欧洲头部实验室，官方站无 RSS(feed.xml 404)
+
+[[source]]
+id = "gnews-sakana"
+board = "tech"
+name = "Sakana AI (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Sakana+AI%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # 日本头部实验室，官方站无 RSS(rss.xml 404)
+
+[[source]]
+id = "pfn-tech"
+board = "tech"
+name = "Preferred Networks Tech Blog"
+type = "rss"
+endpoint = "https://tech.preferred.jp/en/feed/"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # 日本 AI 实验室工程博客(英文)，月更级安静源
+
+# ---- 数据板块：中国大厂工程博客 ----
+
+[[source]]
+id = "meituan-tech"
+board = "data"
+name = "美团技术团队"
+type = "rss"
+endpoint = "https://tech.meituan.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true              # 中文大厂工程主力，与 Netflix/Meta/Airbnb 对位；条目缺 pubDate，走 fetched_at 兜底窗口
+
+# ---- 设计板块：日本/欧洲媒体 + 国际奖项流 ----
+
+[[source]]
+id = "spoon-tamago"
+board = "design"
+name = "Spoon & Tamago"
+type = "rss"
+endpoint = "https://www.spoon-tamago.com/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true              # 日本设计/艺术(英文)，~1 条/天
+
+[[source]]
+id = "axis-jp"
+board = "design"
+name = "AXIS Web Magazine"
+type = "rss"
+endpoint = "https://www.axismag.jp/feed"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true              # 日本设计产业媒体(日文)，~3 条/天
+
+[[source]]
+id = "dieline"
+board = "design"
+name = "The Dieline"
+type = "rss"
+endpoint = "https://thedieline.com/feed"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # 包装设计主力(美/国际)，~2 条/天；feed 仅标题，lazy fetch
+
+[[source]]
+id = "designwanted"
+board = "design"
+name = "DesignWanted"
+type = "rss"
+endpoint = "https://designwanted.com/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true              # 欧洲产品/工业设计(米兰)，~2 条/天
+
+[[source]]
+id = "ignant"
+board = "design"
+name = "Ignant"
+type = "rss"
+endpoint = "https://www.ignant.com/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true              # 柏林设计/摄影/艺术，~1 条/天
+
+[[source]]
+id = "gnews-design-awards"
+board = "design"
+name = "国际设计奖项 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Red+Dot+Award%22+OR+%22iF+Design+Award%22+OR+%22Good+Design+Award%22+OR+%22Dezeen+Awards%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # Red Dot/iF/Good Design(G-Mark)/Dezeen Awards 获奖事件流；获奖公告季节性，粗筛压 PR 噪音
+
+# ---- 艺术板块：欧洲建筑/设计权威 ----
+
+[[source]]
+id = "gnews-domus"
+board = "art"
+name = "Domus (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:domusweb.it+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true              # 意大利建筑/设计权威(1928 创刊)，官方 RSS 已死；建筑向归 art
+
+# ---- 备选（实测活着但暂不启用）----
+
+[[source]]
+id = "technode"
+board = "tech"
+name = "TechNode"
+type = "rss"
+endpoint = "https://technode.com/feed/"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = false             # 中国科技英文报道；feed 全文 5MB/830 条过重，且与中文源+TechCrunch 重叠
+
+[[source]]
+id = "36kr"
+board = "tech"
+name = "36氪"
+type = "rss"
+endpoint = "https://36kr.com/feed"
+content = "abstract"
+fetch_interval_hours = 6
+enabled = false             # 创投/商业向流量大，噪音高；AI 硬新闻量子位已覆盖
+
+[[source]]
+id = "ifanr"
+board = "tech"
+name = "爱范儿"
+type = "rss"
+endpoint = "https://www.ifanr.com/feed"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = false             # 消费数码向，画像不合
+
+[[source]]
+id = "sspai"
+board = "tech"
+name = "少数派"
+type = "rss"
+endpoint = "https://sspai.com/feed"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = false             # 效率工具/软件技巧向，画像不合
+
+[[source]]
+id = "gnews-qwen"
+board = "tech"
+name = "Qwen 通义 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=Qwen+when:7d&hl=zh-CN&gl=CN&ceid=CN:zh-Hans"
+content = "headline"
+fetch_interval_hours = 12
+enabled = false             # Qwen 动态量子位/InfoQ 编辑层已覆盖(实测 63 条/7天)；需要密集追踪再开
