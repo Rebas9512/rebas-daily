@@ -65,14 +65,26 @@ def signals_str(signals_json: str | None) -> str:
     return " ".join(parts) or "-"
 
 
-def materials_block(rows, *, per_item_limit: int = 3000) -> str:
-    """核查/撰写共用的供稿材料块。rows: raw_items 行。"""
+def materials_block(rows, *, per_item_limit: int = 3000,
+                    fulltext: dict | None = None) -> str:
+    """核查/撰写共用的供稿材料块。rows: raw_items 行。
+
+    fulltext: {item_id: 论文原文}（专题级精读材料，fetch 阶段抓的 arXiv 全文）。
+    命中的条目用原文替代摘要，不受 per_item_limit 截断（抓取期已按配置上限截断）。
+    """
+    ft = fulltext or {}
     blocks = []
     for i, r in enumerate(rows, 1):
-        text = (r["extracted_text"] or r["summary"] or "（仅标题，无正文）")[:per_item_limit]
+        deep = ft.get(r["id"])
+        if deep:
+            label = "内容（论文原文精读材料——已抓取的全文，细节以此为准）"
+            text = deep
+        else:
+            label = "内容"
+            text = (r["extracted_text"] or r["summary"] or "（仅标题，无正文）")[:per_item_limit]
         blocks.append(
             f"[S{i}] 标题: {r['title']}\n来源: {r['source_id']} ({r['url']})\n"
-            f"作者: {r['author'] or '未知'}\n内容:\n{text}"
+            f"作者: {r['author'] or '未知'}\n{label}:\n{text}"
         )
     return "\n\n".join(blocks)
 

@@ -86,10 +86,16 @@ class AppConfig:
     feature_cap: int
     brief_length: int
     site_keep_days: int
+    paper_fulltext_max_chars: int
 
     @property
     def db_path(self) -> Path:
         return self.data_dir / "rebas.sqlite"
+
+    @property
+    def paper_cache_dir(self) -> Path:
+        """专题级论文原文的临时缓存（writer 精读用，用完即删，不进 DB）。"""
+        return self.data_dir / "paper_cache"
 
 
 def load_config() -> AppConfig:
@@ -114,6 +120,7 @@ def load_config() -> AppConfig:
         feature_cap=int(publish.get("feature_cap", 4)),
         brief_length=int(publish.get("brief_length", 300)),
         site_keep_days=int(publish.get("site_keep_days", 7)),
+        paper_fulltext_max_chars=int(publish.get("paper_fulltext_max_chars", 40_000)),
     )
 
 

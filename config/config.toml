@@ -37,4 +37,6 @@ feature_cap = 4              # 每板块 feature 硬上限（代码兜底）
 brief_length = 300           # 速览报道目标篇幅（字）——每条入选速览也出短报道页
 site_keep_days = 7           # 往期完整页面保留天数（相对最新一期）；更早的进归档只存目
                              # 渲染期生效，数据库不动——调大后 rebas render 可整体找回
+paper_fulltext_max_chars = 40000   # 专题级论文选题抓原文精读的截断上限（字符）；0 = 关闭。
+                                   # 原文缓存在 data/paper_cache/，writer 写完即删，DB 只留摘要
 # 出刊时间点待定（M5 接 cron 时确定）

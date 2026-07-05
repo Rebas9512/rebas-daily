@@ -27,6 +27,76 @@ THIN_LENGTH_CAP = 600
 
 _OG_IMAGE_RE = re.compile(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', re.I)
 
+# ---- 专题级论文原文精读（2026-07-05）----
+# 专题/头条的论文选题在取材期抓 arXiv HTML 全文给 writer 精读；速览维持摘要。
+# 原文只落 data/paper_cache/ 文件（writer 写完即删，prune 兜底清扫），DB 不存全文。
+# 注意：enrich 阶段另有一个窄版 _ARXIV_ID_RE（新式 id、OpenAlex 反查用），勿混用
+_FULLTEXT_ARXIV_ID_RE = re.compile(
+    r"arxiv\.org/(?:abs|html|pdf)/([0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?/[0-9]{7})",
+    re.I)
+_REFS_TAIL_RE = re.compile(r"\n(?:References|REFERENCES|Bibliography)\s*\n")
+
+
+def _arxiv_id(*urls) -> str | None:
+    for u in urls:
+        m = _FULLTEXT_ARXIV_ID_RE.search(u or "")
+        if m:
+            return m.group(1)
+    return None
+
+
+def _strip_references(text: str) -> str:
+    """截掉参考文献尾巴——只认出现在正文后半段的 References 标题，防误伤前文提及。"""
+    for m in reversed(list(_REFS_TAIL_RE.finditer(text))):
+        if m.start() > len(text) * 0.5:
+            return text[:m.start()]
+    return text
+
+
+def _fetch_arxiv_fulltext(client, arxiv_id: str, max_chars: int) -> str | None:
+    """arXiv 官方 HTML 优先（2024 起 LaTeX 稿多数有），ar5iv 兜底；都无则放弃降级摘要。"""
+    import trafilatura  # 懒加载
+    for base in ("https://arxiv.org/html/", "https://ar5iv.labs.arxiv.org/html/"):
+        try:
+            resp = client.get(base + arxiv_id)
+            if resp.status_code != 200:
+                continue
+            text = (trafilatura.extract(resp.text) or "").strip()
+            text = _strip_references(text)[:max_chars]
+            if len(text) >= 2000:   # 太短说明只抓到占位页/摘要页，不算成功
+                return text
+        except Exception:  # noqa: BLE001 —— 单篇抓取失败不阻塞出刊，writer 降级用摘要
+            continue
+    return None
+
+
+def load_paper_fulltext(conf: AppConfig, rows) -> dict[int, str]:
+    """读取选题条目已缓存的论文原文，{item_id: text}。"""
+    out = {}
+    for r in rows:
+        p = conf.paper_cache_dir / f"{r['id']}.txt"
+        if p.exists():
+            out[r["id"]] = p.read_text(encoding="utf-8")
+    return out
+
+
+def discard_paper_fulltext(conf: AppConfig, item_ids) -> None:
+    for iid in item_ids:
+        (conf.paper_cache_dir / f"{iid}.txt").unlink(missing_ok=True)
+
+
+def sweep_paper_cache(conf: AppConfig, days: int = 3) -> int:
+    """prune 兜底：清掉滞留缓存（writer 中途失败的残留），按文件 mtime。"""
+    if not conf.paper_cache_dir.is_dir():
+        return 0
+    cutoff = time.time() - days * 86400
+    removed = 0
+    for p in conf.paper_cache_dir.glob("*.txt"):
+        if p.stat().st_mtime < cutoff:
+            p.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
 
 def _window_clause(conf: AppConfig) -> tuple[str, list]:
     """出刊取窗：window_hours 定下限；kind=paper 另有沉淀期上限（settle=0 时无效果）。
@@ -373,6 +443,30 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
                 stats["failed"] += 1
             conn.commit()
             time.sleep(1.0)   # 取材礼貌间隔
+
+        # 专题级论文精读：每个 feature 选题的首个论文条目抓 arXiv 原文进文件缓存
+        if conf.paper_fulltext_max_chars > 0:
+            feats = conn.execute(
+                "SELECT id, item_ids FROM topics WHERE issue_date=? AND board=?"
+                " AND decision='feature'", (issue_date, board)).fetchall()
+            for t in feats:
+                rows = _topic_items(conn, t)
+                target = next((r for r in rows if r["kind"] == "paper"), None)
+                aid = _arxiv_id(target["url"], target["url_canonical"]) if target else None
+                if not aid:
+                    continue
+                conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
+                path = conf.paper_cache_dir / f"{target['id']}.txt"
+                if path.exists():
+                    stats["paper_skipped"] = stats.get("paper_skipped", 0) + 1
+                    continue
+                text = _fetch_arxiv_fulltext(client, aid, conf.paper_fulltext_max_chars)
+                if text:
+                    path.write_text(text, encoding="utf-8")
+                    stats["paper_fulltext"] = stats.get("paper_fulltext", 0) + 1
+                else:
+                    stats["paper_failed"] = stats.get("paper_failed", 0) + 1
+                time.sleep(1.0)
     return stats
 
 
@@ -380,9 +474,12 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
 
 def _topic_items(conn, topic_row):
     ids = json.loads(topic_row["item_ids"])
-    return conn.execute(
-        f"SELECT id, title, summary, extracted_text, url, source_id, author, image_url"
+    rows = conn.execute(
+        f"SELECT id, title, summary, extracted_text, url, url_canonical, kind,"
+        f" source_id, author, image_url"
         f" FROM raw_items WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
+    rows.sort(key=lambda r: ids.index(r["id"]))   # 保持主编排序（首条为主材料）
+    return rows
 
 
 def stage_checker(conn, conf: AppConfig, backend: LLMBackend, board: str,
@@ -591,7 +688,13 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
     written = 0
     for t in topics:
         rows = _topic_items(conn, t)
-        material_total = sum(len(r["extracted_text"] or r["summary"] or "") for r in rows)
+        # 专题级论文原文（fetch 阶段缓存的精读材料）；速览不精读维持摘要
+        fulltext = (load_paper_fulltext(conf, rows)
+                    if t["decision"] != "brief" and conf.paper_fulltext_max_chars > 0
+                    else {})
+        material_total = sum(
+            len(fulltext.get(r["id"]) or r["extracted_text"] or r["summary"] or "")
+            for r in rows)
         t0 = time.time()
         if t["decision"] == "brief":
             prompt = render_prompt(
@@ -609,7 +712,8 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 reason=t["reason"] or "（主编未附理由）", target_length=target,
                 check_block=check_block(t["check_notes"]),
                 background_block=background_block(t["background"]),
-                materials_block=materials_block(rows, per_item_limit=6000))
+                materials_block=materials_block(rows, per_item_limit=6000,
+                                                fulltext=fulltext))
         result = complete_json(backend, prompt, role="writer")
         conn.execute(
             "INSERT INTO articles (topic_id, card_summary, body_md, credibility_notes,"
@@ -621,5 +725,8 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                          "material_chars": material_total}),
              utcnow_iso()))
         conn.commit()
+        if fulltext:
+            # 原文用完即删（省磁盘；断点续跑安全——写失败时文件保留供重试）
+            discard_paper_fulltext(conf, fulltext.keys())
         written += 1
     return {"written": written}
