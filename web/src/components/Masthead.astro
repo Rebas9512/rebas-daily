@@ -307,6 +307,20 @@ const currentLabel =
     .tabdrop__summary {
       padding: 12px 0;
     }
+
+    /* 点外部自动收起（保持零 JS）：展开时 summary 生成一个全屏透明点击层，
+       点菜单外任何位置＝点 summary＝原生收起；面板 z-index 30 在层之上不受影响。
+       注意：.mastnav 的 backdrop-filter 会把 fixed 后代的包含块钳到导航条，
+       所以不能用 inset:0，要用超尺寸盒覆盖视口 */
+    .tabdrop[open] .tabdrop__summary::before {
+      content: "";
+      position: fixed;
+      top: -100vh;
+      left: -100vw;
+      width: 300vw;
+      height: 300vh;
+      z-index: 29;
+    }
   }
 
   @media (max-width: 640px) {
