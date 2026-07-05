@@ -28,7 +28,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - `src/rebas/agents/` + `pipeline.py` —— 出刊各阶段 + 编排（issues.status 断点续跑）
 - `src/rebas/render/export.py` —— SQLite → `web/data/*.json` 数据契约 + 调 Astro 构建；构建期 LaTeX→MathML
 - `web/` —— 前端（Astro + TS，零 JS 渲染 + PWA）→ `site/`；设计 token 在 `web/src/styles/global.css`；**`build.inlineStylesheets="always"` 必须保留**（否则 file:// 直开与子路径托管全裂）
-- `data/rebas.sqlite` —— 原始池 + 管线产物（gitignored）
+- `data/rebas.sqlite` —— 原始池 + 管线产物（gitignored）；`data/paper_cache/` = 精读原文临时缓存（writer 用完即删，prune 兜底清扫）
 - `.codex/`、`.secrets/` —— 凭证（gitignored，chmod 700）
 
 ## 云端部署（四批备刊模型）
@@ -68,7 +68,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - [ ] enrich 二期：HN 反查 + HF 论文↔仓库联动；alphaXiv upvotes
 - [ ] 旧 Jinja 渲染层（`render/site.py` + templates）已停用，可删
 
-测试：`.venv/bin/pytest -q tests/`（35 项）。
+测试：`.venv/bin/pytest -q tests/`（54 项）。
 
 ## 管理后台（2026-07-05 上线）
 
