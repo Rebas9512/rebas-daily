@@ -444,11 +444,14 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
             conn.commit()
             time.sleep(1.0)   # 取材礼貌间隔
 
-        # 专题级论文精读：每个 feature 选题的首个论文条目抓 arXiv 原文进文件缓存
+        # 专题级论文精读：每个 feature 选题的首个论文条目抓 arXiv 原文进文件缓存。
+        # 已成稿的选题跳过——否则 writer 删缓存后，之后每轮自愈 publish 都会白抓一遍
         if conf.paper_fulltext_max_chars > 0:
             feats = conn.execute(
                 "SELECT id, item_ids FROM topics WHERE issue_date=? AND board=?"
-                " AND decision='feature'", (issue_date, board)).fetchall()
+                " AND decision='feature' AND NOT EXISTS"
+                " (SELECT 1 FROM articles a WHERE a.topic_id = topics.id)",
+                (issue_date, board)).fetchall()
             for t in feats:
                 rows = _topic_items(conn, t)
                 target = next((r for r in rows if r["kind"] == "paper"), None)

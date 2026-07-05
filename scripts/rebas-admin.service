@@ -1,0 +1,21 @@
+# rebas_daily 管理后台 systemd 单元
+# 安装（VPS）:
+#   cp /opt/rebas_daily/scripts/rebas-admin.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now rebas-admin
+# 只听回环：过渡期 ssh -L 8787:127.0.0.1:8787 root@<vps>；
+# 正式暴露走 Cloudflare Tunnel（零入站端口），见 docs/OPERATIONS.md。
+
+[Unit]
+Description=rebas_daily admin console
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/rebas_daily
+ExecStart=/opt/rebas_daily/.venv/bin/rebas admin-serve --host 127.0.0.1 --port 8787
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUTF8=1
+Environment=TZ=America/Chicago
+
+[Install]
+WantedBy=multi-user.target

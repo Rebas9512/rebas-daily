@@ -149,5 +149,40 @@ def render() -> None:
     typer.echo(f"输出目录: {conf.site_dir}/index.html")
 
 
+@app.command("admin-seed")
+def admin_seed(
+    email: str = typer.Option(..., "--email", help="管理后台登录邮箱"),
+    password: str = typer.Option(..., "--password", prompt=True, hide_input=True,
+                                 help="登录密码（不传参会交互式输入，不进 shell 历史）"),
+) -> None:
+    """创建/重置管理后台账号（scrypt 散列入库，不存明文）。"""
+    from rebas.admin.auth import hash_password
+    from rebas.collect.base import utcnow_iso
+
+    conf = cfg.load_config()
+    conn = database.init_db(conf.db_path)
+    salt, h = hash_password(password)
+    conn.execute(
+        "INSERT INTO admin_users (email, pw_salt, pw_hash, created_at) VALUES (?,?,?,?)"
+        " ON CONFLICT(email) DO UPDATE SET pw_salt=excluded.pw_salt,"
+        " pw_hash=excluded.pw_hash",
+        (email.strip().lower(), salt, h, utcnow_iso()))
+    conn.commit()
+    conn.close()
+    typer.echo(f"✔ 管理账号已就绪: {email.strip().lower()}")
+
+
+@app.command("admin-serve")
+def admin_serve(
+    host: str = typer.Option("127.0.0.1", "--host",
+                             help="监听地址（保持回环，经 SSH 隧道或 CF Tunnel 访问）"),
+    port: int = typer.Option(8787, "--port"),
+) -> None:
+    """启动管理后台（生产用 systemd 单元 scripts/rebas-admin.service）。"""
+    import uvicorn
+
+    uvicorn.run("rebas.admin.app:app", host=host, port=port, log_level="warning")
+
+
 if __name__ == "__main__":
     app()

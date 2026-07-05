@@ -69,3 +69,14 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - [ ] 旧 Jinja 渲染层（`render/site.py` + templates）已停用，可删
 
 测试：`.venv/bin/pytest -q tests/`（35 项）。
+
+## 管理后台（2026-07-05 上线）
+
+VPS 上的编辑部控制台：备稿状态监控、板块画像（关键词/权重/读者画像）与出刊参数在线编辑、报道点赞点踩（反馈池，供后续选题加权算法）。
+
+- 服务：`systemd` 单元 `rebas-admin`（`scripts/rebas-admin.service`），只听 `127.0.0.1:8787`，零入站端口原则不破。
+- 访问（备用，SSH 隧道）：`ssh -L 8787:127.0.0.1:8787 <user>@<vps>`，浏览器开 `http://localhost:8787`。
+- 账号：`rebas admin-seed --email <邮箱>`（交互式输密码，scrypt 入库不存明文）；JWT 有效期 180 天，密钥在 `.secrets/admin_jwt.secret`（换密钥即吊销所有已发 token）。
+- 正式入口（2026-07-05 已挂通）：**https://admin.rebasdaily.com** —— Cloudflare Tunnel（VPS systemd 服务 `cloudflared`，dash 里 tunnel 名 rebas-admin，Public hostname → `http://localhost:8787`，出站连接不开端口）。可选加固：Zero Trust → Access 给该域套邮箱 OTP 策略做边缘拦截。
+- **画像/参数编辑写的是 VPS 上的 config 文件**：改完记得本机跑 `scripts/vps_pull_config.sh <user>@<vps>` 拉回入 git，否则下次 `vps_sync.sh` 会用本地旧版覆盖线上改动。
+- 反馈数据在 `feedback` 表（topic_id/vote/updated_at），选题加权算法未实现——先攒信号。

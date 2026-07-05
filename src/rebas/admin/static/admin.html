@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>编辑部 — Rebas Daily</title>
+<link rel="icon" type="image/svg+xml" href="https://rebasdaily.com/favicon.svg">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="https://rebasdaily.com/apple-touch-icon.png">
+<meta name="theme-color" content="#f1f1f0" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#232322" media="(prefers-color-scheme: dark)">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600&family=Noto+Sans+SC:wght@400;500&display=swap">
+<style>
+/* ---- 设计 token：与主站 web/src/styles/global.css 1:1 ---- */
+:root {
+  --bg: #f1f1f0; --surface: #fafaf9; --ink: #3a3a3a; --body: #4a4a4a;
+  --secondary: #5c5c5c; --muted: #6f6f6f; --hairline: #dbdbda; --soft: #e3e3e2;
+  --deep: #2e2e2e; --deep-text: #a8a8a7; --accent: #e13c25;
+  --ok: #2e7d4f;
+  --serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+  --sans: "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", "IBM Plex Mono", monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #232322; --surface: #2a2a29; --ink: #d6d6d4; --body: #bfbfbd;
+    --secondary: #a4a4a2; --muted: #8e8e8c; --hairline: #3d3d3c; --soft: #343433;
+    --deep: #1c1c1b; --deep-text: #8e8e8c; --accent: #e8563f; --ok: #4ca375;
+  }
+}
+* { box-sizing: border-box; margin: 0; }
+html { color-scheme: light dark; }
+body { background: var(--bg); color: var(--body); font-family: var(--sans);
+       font-size: 15px; line-height: 1.75; -webkit-font-smoothing: antialiased; }
+a { color: inherit; text-decoration: none; }
+.container { max-width: 1040px; margin-inline: auto; padding-inline: 24px; }
+.mono { font-family: var(--mono); font-size: 10px; letter-spacing: 0.17em;
+        text-transform: uppercase; color: var(--muted); }
+.mono--link { color: var(--secondary); transition: color .15s; cursor: pointer;
+              background: none; border: none; padding: 0; }
+.mono--link:hover { color: var(--ink); }
+.rule { border: 0; border-top: 1px solid var(--ink); }
+h1, h2, h3, .serif { font-family: var(--serif); font-weight: 600; color: var(--ink); }
+::selection { background: var(--accent); color: #fff; }
+
+/* ---- 刊头（同主站 Masthead）---- */
+.masthead__top { display: flex; justify-content: space-between; align-items: flex-end;
+                 padding-top: 30px; padding-bottom: 18px; }
+.brand { display: flex; align-items: center; gap: 16px; }
+.brand__mark { height: 44px; width: auto; }
+.brand__text { display: flex; flex-direction: column; gap: 4px; }
+.brand__name { font-size: 27px; line-height: 1.1; }
+.brand__sub { letter-spacing: 0.2em; }
+.masthead__issue { font-size: 11px; color: var(--secondary); text-align: right; }
+.mastnav { border-bottom: 1px solid var(--hairline); background: var(--bg); }
+.masthead__tabs { display: flex; justify-content: space-between; align-items: center;
+                  gap: 24px; overflow-x: auto; scrollbar-width: none; }
+.masthead__tabs::-webkit-scrollbar { display: none; }
+.tabs { display: flex; gap: 34px; list-style: none; padding: 0; flex: none; }
+.tab { display: flex; align-items: center; gap: 7px; padding: 10px 0 16px;
+       font-size: 15px; color: var(--muted); transition: color .15s; white-space: nowrap;
+       background: none; border: none; cursor: pointer; font-family: var(--sans); }
+.tab:hover { color: var(--ink); }
+.tab__mark { width: 5px; height: 5px; background: var(--accent); opacity: 0; }
+.tab--active { color: var(--ink); font-weight: 500; }
+.tab--active .tab__mark { opacity: 1; }
+@media (max-width: 880px) {
+  .masthead__top { padding-top: 20px; padding-bottom: 14px; }
+  .brand__mark { height: 36px; }
+  .brand__name { font-size: 22px; }
+  .mastnav { position: sticky; top: 0; z-index: 25;
+             background: color-mix(in srgb, var(--bg) 92%, transparent);
+             backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .masthead__tabs { min-height: 46px; align-items: center; }
+  .tabs { gap: 22px; }
+  .tab { padding: 12px 0; font-size: 14px; }
+}
+
+/* ---- 区块节奏（同主站 sec）---- */
+.sec { margin-top: 34px; }
+.sec__head { display: flex; justify-content: space-between; align-items: baseline;
+             gap: 16px; padding-top: 13px; flex-wrap: wrap; }
+.sec__title { font-size: 19px; }
+.sec__note { font-size: 12.5px; color: var(--muted); max-width: 640px; margin-top: 4px; }
+
+/* ---- 表格与卡片 ---- */
+.scrollx { overflow-x: auto; margin-top: 14px; border: 1px solid var(--hairline);
+           border-radius: 4px; background: var(--surface); }
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 560px; }
+th, td { text-align: left; padding: 8px 14px; border-bottom: 1px solid var(--hairline); }
+tr:last-child td { border-bottom: 0; }
+th { font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+     text-transform: uppercase; color: var(--muted); font-weight: 500; white-space: nowrap; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+         gap: 12px; margin-top: 14px; }
+.card { background: var(--surface); border: 1px solid var(--hairline);
+        border-radius: 4px; padding: 14px 16px; }
+.card b { font-size: 17px; color: var(--ink); font-family: var(--serif); }
+.pill { display: inline-block; padding: 0 8px; border: 1px solid var(--hairline);
+        border-radius: 9px; font-family: var(--mono); font-size: 10px;
+        letter-spacing: 0.08em; white-space: nowrap; }
+.pill--warn { color: var(--accent); border-color: var(--accent); }
+.pill--ok { color: var(--ok); border-color: var(--ok); }
+pre.log { background: var(--deep); color: var(--deep-text); padding: 16px;
+          font-family: var(--mono); font-size: 11.5px; letter-spacing: 0; line-height: 1.6;
+          overflow: auto; border-radius: 4px; max-height: 420px; margin-top: 14px; }
+
+/* ---- 表单 ---- */
+input, textarea, select {
+  font-family: var(--sans); font-size: 14px; color: var(--ink);
+  background: var(--surface); border: 1px solid var(--hairline); border-radius: 3px;
+  padding: 8px 10px; width: 100%;
+}
+textarea { resize: vertical; line-height: 1.6; }
+input:focus, textarea:focus, select:focus { outline: 2px solid var(--ink); outline-offset: -1px; }
+.lbl { display: block; font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+       text-transform: uppercase; color: var(--muted); margin: 18px 0 6px; }
+.btn { background: var(--ink); color: var(--bg); border: none; cursor: pointer;
+       font-family: var(--sans); font-size: 14px; padding: 9px 22px; border-radius: 3px;
+       transition: opacity .15s; }
+.btn:hover { opacity: .85; }
+.btn--ghost { background: none; border: 1px solid var(--hairline); color: var(--secondary);
+              font-size: 12.5px; padding: 5px 14px; }
+.btn--ghost:hover { color: var(--ink); border-color: var(--ink); opacity: 1; }
+.row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+
+/* 兴趣方向编辑行 */
+.int { border: 1px solid var(--hairline); background: var(--surface); border-radius: 4px;
+       padding: 12px 14px; margin-top: 10px; display: grid;
+       grid-template-columns: 1fr 76px 32px; gap: 8px 10px; align-items: start; }
+.int textarea { grid-column: 1 / -1; min-height: 44px; font-family: var(--mono);
+                font-size: 12.5px; letter-spacing: 0; text-transform: none; }
+.int .x { background: none; border: 1px solid var(--hairline); border-radius: 3px;
+          color: var(--muted); cursor: pointer; font-size: 13px; height: 37px; }
+.int .x:hover { color: var(--accent); border-color: var(--accent); }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+                 gap: 12px; margin-top: 14px; }
+.set .mono { display: block; margin-bottom: 6px; }
+.set small { color: var(--muted); font-size: 11.5px; }
+
+/* ---- 反馈列表（移动端友好的行卡片，不用表格）---- */
+.fb { border: 1px solid var(--hairline); border-radius: 4px; background: var(--surface);
+      margin-top: 14px; }
+.fb__row { display: flex; gap: 14px; align-items: center; padding: 12px 16px;
+           border-bottom: 1px solid var(--hairline); }
+.fb__row:last-child { border-bottom: 0; }
+.fb__meta { flex: none; width: 74px; display: flex; flex-direction: column; gap: 3px; }
+.fb__lv { color: var(--accent); }
+.fb__body { flex: 1; min-width: 0; }
+.fb__title { font-size: 14.5px; color: var(--ink); font-weight: 500; line-height: 1.5; }
+.fb__sum { font-size: 12.5px; color: var(--muted); line-height: 1.6;
+           display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.vote { display: flex; gap: 6px; flex: none; }
+.vote button { background: var(--surface); border: 1px solid var(--hairline); border-radius: 3px;
+               cursor: pointer; font-size: 15px; padding: 4px 12px; transition: all .15s; }
+.vote button:hover { border-color: var(--ink); }
+.vote .on-up { border-color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, var(--surface)); }
+.vote .on-dn { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--surface)); }
+@media (max-width: 640px) {
+  .fb__row { flex-wrap: wrap; gap: 8px 14px; }
+  .fb__meta { flex-direction: row; width: auto; gap: 10px; }
+  .fb__body { flex-basis: 100%; order: 3; }
+  .vote { margin-left: auto; }
+}
+
+/* ---- 登录 ---- */
+.login { max-width: 340px; margin: 16vh auto 0; padding: 0 24px;
+         display: flex; flex-direction: column; gap: 14px; text-align: center; }
+.login img { height: 52px; margin: 0 auto 4px; }
+.login h1 { font-size: 24px; }
+.login .mono { letter-spacing: 0.2em; }
+.login input { text-align: center; }
+.msg { font-size: 13px; color: var(--accent); min-height: 22px; }
+
+/* ---- 页脚（同主站深灰色带）---- */
+.footer { background: var(--deep); margin-top: 56px;
+          padding-bottom: env(safe-area-inset-bottom); }
+.footer__row { display: flex; justify-content: space-between; align-items: center;
+               gap: 16px; flex-wrap: wrap; padding: 22px 0 26px; }
+.footer__text { color: var(--deep-text); letter-spacing: 0.1em; }
+a.footer__text:hover, button.footer__text:hover { color: #fff; }
+
+/* ---- 杂项 ---- */
+.toast { position: fixed; bottom: max(24px, env(safe-area-inset-bottom)); left: 50%;
+         transform: translateX(-50%); background: var(--ink); color: var(--bg);
+         padding: 9px 24px; border-radius: 4px; font-size: 13.5px; opacity: 0;
+         transition: opacity .25s; pointer-events: none; z-index: 50; max-width: 90vw; }
+.toast.show { opacity: 1; }
+.loading { padding: 48px 0; color: var(--muted); font-size: 13.5px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = (s, el=document) => el.querySelector(s);
+const app = $('#app');
+let TOKEN = localStorage.getItem('rebas_admin_token') || '';
+let EMAIL = localStorage.getItem('rebas_admin_email') || '';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const toast = m => { const t=$('#toast'); t.textContent=m; t.classList.add('show');
+                     setTimeout(()=>t.classList.remove('show'), 2400); };
+
+async function api(path, opts={}) {
+  const r = await fetch(path, {...opts, headers:{
+    'Content-Type':'application/json', 'Authorization':'Bearer '+TOKEN, ...(opts.headers||{})}});
+  if (r.status === 401) { logout(); throw new Error('未登录'); }
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+function logout() { TOKEN=''; localStorage.removeItem('rebas_admin_token'); renderLogin(); }
+
+/* ================= 登录 ================= */
+function renderLogin(msg='') {
+  app.innerHTML = `<div class="login">
+    <img src="https://rebasdaily.com/logo-mark.svg" alt="">
+    <h1>Rebas Daily</h1>
+    <span class="mono">ADMIN CONSOLE · 编辑部</span>
+    <input id="em" type="email" placeholder="邮箱" autocomplete="username" value="${esc(EMAIL)}">
+    <input id="pw" type="password" placeholder="密码" autocomplete="current-password">
+    <button class="btn" id="go">登录</button>
+    <div class="msg">${esc(msg)}</div></div>`;
+  const go = async () => {
+    try {
+      const r = await fetch('/api/login', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({email:$('#em').value, password:$('#pw').value})});
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.detail || '登录失败');
+      TOKEN = j.token; EMAIL = j.email;
+      localStorage.setItem('rebas_admin_token', TOKEN);
+      localStorage.setItem('rebas_admin_email', EMAIL);
+      renderShell('status');
+    } catch(e) { renderLogin(e.message); }
+  };
+  $('#go').onclick = go;
+  $('#pw').onkeydown = e => { if (e.key==='Enter') go(); };
+  ($('#em').value ? $('#pw') : $('#em')).focus();
+}
+
+/* ================= 外壳 ================= */
+const TABS = [['status','备稿状态'],['config','板块与参数'],['votes','报道反馈']];
+function renderShell(tab) {
+  app.innerHTML = `
+  <header>
+    <div class="container masthead__top">
+      <a class="brand" href="https://rebasdaily.com" target="_blank" rel="noopener">
+        <img class="brand__mark" src="https://rebasdaily.com/logo-mark.svg" alt="">
+        <span class="brand__text">
+          <span class="brand__name serif">Rebas Daily</span>
+          <span class="mono brand__sub">ADMIN CONSOLE · 编辑部</span>
+        </span>
+      </a>
+      <span class="mono masthead__issue" id="clock">${esc(EMAIL)}</span>
+    </div>
+  </header>
+  <nav class="mastnav">
+    <div class="container masthead__tabs">
+      <ul class="tabs">
+        ${TABS.map(([k,l])=>`<li><button class="tab ${k===tab?'tab--active':''}" data-t="${k}"
+          ${k===tab?'aria-current="page"':''}><span class="tab__mark" aria-hidden="true"></span>${l}</button></li>`).join('')}
+      </ul>
+      <button class="mono mono--link" id="logout">退出 SIGN OUT</button>
+    </div>
+  </nav>
+  <main class="container" id="main"><div class="loading">加载中…</div></main>
+  <footer class="footer">
+    <div class="container footer__row">
+      <span class="mono footer__text">© ${new Date().getFullYear()} REBAS DAILY — ADMIN CONSOLE</span>
+      <a class="mono footer__text" href="https://rebasdaily.com" target="_blank" rel="noopener">刊物首页 ↗</a>
+    </div>
+  </footer>`;
+  app.querySelectorAll('[data-t]').forEach(b => b.onclick = () => renderShell(b.dataset.t));
+  $('#logout').onclick = logout;
+  ({status:renderStatus, config:renderConfig, votes:renderVotes})[tab]();
+}
+const secHead = (no, en, title, note='') => `
+  <section class="sec"><hr class="rule">
+  <div class="sec__head"><div>
+    <span class="mono">SECTION ${String(no).padStart(2,'0')} — ${en}</span>
+    <h2 class="sec__title">${title}</h2>
+    ${note?`<p class="sec__note">${note}</p>`:''}
+  </div><span id="sec-x-${no}"></span></div>`;
+
+/* ================= 备稿状态 ================= */
+async function renderStatus() {
+  const m = $('#main');
+  const s = await api('/api/status');
+  $('#clock').textContent = `${s.timezone} · ${s.now.slice(5,16).replace('T',' ')}Z`;
+  const staleH = ts => ts ? Math.round((Date.now() - new Date(ts+'Z'))/36e5) : null;
+  m.innerHTML = `
+    ${secHead(1,'ISSUES','期次')}
+    <div class="cards">${s.issues.map(i=>`<div class="card">
+      <span class="mono">${esc(i.issue_date)}</span><br>
+      <b>${esc(i.status)}</b>
+      <div style="font-size:12.5px;color:var(--muted)">${i.topics} 题 · ${i.articles} 稿</div>
+    </div>`).join('')}</div></section>
+
+    ${secHead(2,'BOARDS','备稿进度 · '+esc(s.prep_date||'—'))}
+    <div class="scrollx"><table>
+      <tr><th>板块</th><th class="num">专题</th><th class="num">速览</th>
+      <th class="num">已成稿</th><th class="num">候选·未筛</th><th class="num">候选·已筛</th></tr>
+      ${s.boards.map(b=>`<tr><td style="color:var(--ink)">${esc(b.name)}</td>
+        <td class="num">${b.features}</td><td class="num">${b.briefs}</td>
+        <td class="num">${b.articles}</td>
+        <td class="num">${b.cand_new}</td><td class="num">${b.cand_screened}</td></tr>`).join('')}
+    </table></div></section>
+
+    ${secHead(3,'BATCH LOG','批次日志')}
+    <pre class="log" id="log">…</pre></section>
+
+    ${secHead(4,'SOURCES · '+s.sources.length,'信息源健康')}
+    <div class="scrollx"><table>
+      <tr><th>源</th><th>板块</th><th class="num">上次抓取</th><th class="num">上次出新</th><th>状态</th></tr>
+      ${s.sources.map(x=>{
+        const ageN = staleH(x.last_new_at), ageF = staleH(x.last_fetch_at);
+        const bad = (x.last_status && !['ok','304'].includes(x.last_status)) || ageN===null || ageN>168;
+        return `<tr><td>${esc(x.name)}</td><td class="mono" style="font-size:10px">${esc(x.board)}</td>
+          <td class="num">${ageF===null?'—':ageF+'h 前'}</td><td class="num">${ageN===null?'从未':ageN+'h 前'}</td>
+          <td><span class="pill ${bad?'pill--warn':'pill--ok'}">${esc(x.last_status||'?')}</span></td></tr>`;
+      }).join('')}</table></div></section>`;
+  $('#sec-x-3').innerHTML = `<button class="btn btn--ghost" id="rl">刷新</button>`;
+  const loadLog = async () => {
+    const el = $('#log');
+    el.textContent = (await api('/api/log')).log;
+    el.scrollTop = el.scrollHeight;
+  };
+  $('#rl').onclick = loadLog; loadLog();
+}
+
+/* ================= 板块画像 + 出刊参数 ================= */
+let PROFILES = [];
+async function renderConfig() {
+  const m = $('#main');
+  const [{profiles}, st] = await Promise.all([api('/api/profiles'), api('/api/settings')]);
+  PROFILES = profiles;
+  m.innerHTML = `
+    ${secHead(1,'PROFILES','板块画像',
+      '关键词用于预筛与粗筛/主编打分参考，权重 1–5；读者画像决定背调的切入角度。改动写入 VPS 正本，对下一次管线运行即刻生效。')}
+    <div class="row"><select id="bsel" style="max-width:280px">
+      ${profiles.map((p,i)=>`<option value="${i}">${esc(p.name)}（${esc(p.board)}）</option>`).join('')}
+    </select></div>
+    <div id="pform"></div></section>
+
+    ${secHead(2,'PUBLISH SETTINGS','出刊参数',
+      '白名单参数，越界会被拒绝；沉淀期/取窗改动影响明日选题池，慎调。')}
+    <div class="settings-grid" id="sform">
+      ${Object.entries(st.settings).map(([k,v])=>`<div class="card set">
+        <span class="mono">${esc(k)}</span>
+        <input type="number" data-k="${esc(k)}" value="${v}"
+          min="${st.bounds[k][0]}" max="${st.bounds[k][1]}">
+        <small>范围 ${st.bounds[k][0]} ~ ${st.bounds[k][1]}</small>
+      </div>`).join('')}</div>
+    <div class="row"><button class="btn" id="ssave">保存出刊参数</button></div></section>`;
+  $('#bsel').onchange = () => drawProfile(+$('#bsel').value);
+  $('#ssave').onclick = async () => {
+    const body = {};
+    $('#sform').querySelectorAll('input').forEach(i => body[i.dataset.k] = +i.value);
+    try { await api('/api/settings', {method:'PUT', body:JSON.stringify(body)}); toast('出刊参数已保存'); }
+    catch(e) { toast('保存失败：'+e.message); }
+  };
+  drawProfile(0);
+}
+
+function drawProfile(idx) {
+  const p = PROFILES[idx], f = $('#pform');
+  f.innerHTML = `
+    <label class="lbl">板块名（"·"前是导航 tab 名）</label>
+    <input id="pname" value="${esc(p.name)}" style="max-width:360px">
+    <label class="lbl">兴趣方向 — 名称 / 权重 / 关键词（逗号分隔）</label>
+    <div id="ints"></div>
+    <div class="row"><button class="btn btn--ghost" id="iadd">＋ 加一个方向</button></div>
+    <label class="lbl">降权关键词 LOW PRIORITY</label>
+    <textarea id="plow" rows="2">${esc(p.low_priority.join(', '))}</textarea>
+    <label class="lbl">屏蔽关键词 BLOCKLIST</label>
+    <textarea id="pblk" rows="2">${esc(p.blocklist.join(', '))}</textarea>
+    <label class="lbl">读者画像 — 已会什么（不需要解释的）</label>
+    <textarea id="pra" rows="2">${esc(p.reader_assumed)}</textarea>
+    <label class="lbl">读者画像 — 要解释什么（背调切入角度）</label>
+    <textarea id="pre" rows="3">${esc(p.reader_explain)}</textarea>
+    <div class="row"><button class="btn" id="psave">保存「${esc(p.board)}」画像</button></div>`;
+  const ints = $('#ints');
+  const addRow = it => {
+    const d = document.createElement('div'); d.className = 'int';
+    d.innerHTML = `<input class="i-n" placeholder="方向名" value="${esc(it.name)}">
+      <input class="i-w" type="number" min="1" max="5" value="${it.weight}" title="权重 1-5">
+      <button class="x" title="删除这个方向">✕</button>
+      <textarea class="i-k" placeholder="keyword1, keyword2">${esc(it.keywords.join(', '))}</textarea>`;
+    d.querySelector('.x').onclick = () => d.remove();
+    ints.appendChild(d);
+  };
+  p.interests.forEach(addRow);
+  $('#iadd').onclick = () => addRow({name:'', weight:3, keywords:[]});
+  $('#psave').onclick = async () => {
+    const csv = s => s.split(/[,，]/).map(x=>x.trim()).filter(Boolean);
+    const body = {
+      name: $('#pname').value,
+      interests: [...ints.querySelectorAll('.int')].map(d=>({
+        name: d.querySelector('.i-n').value, weight: +d.querySelector('.i-w').value,
+        keywords: csv(d.querySelector('.i-k').value)})),
+      low_priority: csv($('#plow').value), blocklist: csv($('#pblk').value),
+      reader_assumed: $('#pra').value, reader_explain: $('#pre').value,
+    };
+    try {
+      await api('/api/profiles/'+p.board, {method:'PUT', body:JSON.stringify(body)});
+      toast(`「${p.board}」画像已保存`);
+      const {profiles} = await api('/api/profiles'); PROFILES = profiles;
+    } catch(e) { toast('保存失败：'+e.message); }
+  };
+}
+
+/* ================= 报道反馈 ================= */
+async function renderVotes() {
+  const m = $('#main');
+  const {issues} = await api('/api/issues');
+  if (!issues.length) { m.innerHTML = '<div class="loading">还没有期次。</div>'; return; }
+  m.innerHTML = `
+    ${secHead(1,'FEEDBACK','报道反馈',
+      '赞/踩进反馈池，累计后用于同类选题的加权与降权；再点一次同一按钮可取消。')}
+    <div class="row"><select id="dsel" style="max-width:280px">
+      ${issues.map(i=>`<option value="${esc(i.issue_date)}">${esc(i.issue_date)}（${esc(i.status)}）</option>`).join('')}
+    </select></div>
+    <div id="tlist"><div class="loading">加载中…</div></div></section>
+    ${secHead(2,'SUMMARY','反馈池累计')}
+    <div id="fsum" style="margin-top:2px">…</div></section>`;
+  const LV = t => t.slot==='headline' ? '头条' : (t.decision==='feature' ? '专题' : '速览');
+  const load = async () => {
+    const {topics} = await api('/api/topics?date='+$('#dsel').value);
+    $('#tlist').innerHTML = topics.length ? `<div class="fb">
+      ${topics.map(t=>`<div class="fb__row">
+        <span class="fb__meta"><span class="mono">${esc(t.board)}</span>
+          <span class="mono ${t.slot==='headline'?'fb__lv':''}">${LV(t)}</span></span>
+        <div class="fb__body"><div class="fb__title">${esc(t.title)}</div>
+          <div class="fb__sum">${esc(t.card_summary||'')}</div></div>
+        <div class="vote" data-id="${t.id}">
+          <button class="v-up ${t.vote===1?'on-up':''}" title="赞">👍</button>
+          <button class="v-dn ${t.vote===-1?'on-dn':''}" title="踩">👎</button></div>
+      </div>`).join('')}</div>` : '<div class="loading">这期还没有选题。</div>';
+    $('#tlist').querySelectorAll('.vote').forEach(v => {
+      const id = +v.dataset.id, up = v.querySelector('.v-up'), dn = v.querySelector('.v-dn');
+      const send = async vote => {
+        try { await api('/api/feedback', {method:'POST', body:JSON.stringify({topic_id:id, vote})});
+              load(); loadSum(); } catch(e) { toast(e.message); }
+      };
+      up.onclick = () => send(up.classList.contains('on-up') ? 0 : 1);
+      dn.onclick = () => send(dn.classList.contains('on-dn') ? 0 : -1);
+    });
+  };
+  const loadSum = async () => {
+    const s = await api('/api/feedback/summary');
+    $('#fsum').innerHTML = s.by_board.length ? `<div class="scrollx" style="max-width:420px"><table style="min-width:0">
+      <tr><th>板块</th><th class="num">👍</th><th class="num">👎</th></tr>
+      ${s.by_board.map(r=>`<tr><td class="mono" style="font-size:10px">${esc(r.board)}</td>
+        <td class="num">${r.up||0}</td><td class="num">${r.down||0}</td></tr>`).join('')}</table></div>`
+      : '<p class="sec__note">还没有任何反馈。</p>';
+  };
+  $('#dsel').onchange = load;
+  load(); loadSum();
+}
+
+/* ================= 启动 ================= */
+if (TOKEN) {
+  api('/api/status').then(()=>renderShell('status')).catch(e => {
+    // 401 已在 api() 里转去登录页；这里只兜网络/服务器故障，不留白屏
+    if (e.message !== '未登录')
+      app.innerHTML = `<div class="loading" style="text-align:center;padding-top:20vh">
+        连接编辑部失败（${esc(e.message)}）——<a href="" style="text-decoration:underline">刷新重试</a></div>`;
+  });
+} else renderLogin();
+</script>
+</body>
+</html>

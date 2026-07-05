@@ -83,6 +83,19 @@ CREATE TABLE IF NOT EXISTS gnews_cache (               -- Google News 跳转 URL
     real_url    TEXT NOT NULL,
     resolved_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS admin_users (               -- 管理后台账号（2026-07-05）
+    email      TEXT PRIMARY KEY,
+    pw_salt    TEXT NOT NULL,                          -- base64；scrypt 参数见 admin/auth.py
+    pw_hash    TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS feedback (                  -- 报道点赞/点踩（选题级，一题一票可改）
+    topic_id   INTEGER PRIMARY KEY REFERENCES topics(id),
+    vote       INTEGER NOT NULL,                       -- 1 赞 | -1 踩
+    updated_at TEXT NOT NULL
+);
 """
 
 

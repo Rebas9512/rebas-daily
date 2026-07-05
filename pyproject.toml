@@ -16,6 +16,11 @@ dependencies = [
     "markdown>=3.6",
     "nh3>=0.2",
     "typer>=0.12",
+    # 管理后台（2026-07-05）
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pyjwt>=2.9",
+    "tomlkit>=0.13",
 ]
 
 [project.optional-dependencies]
@@ -26,3 +31,6 @@ rebas = "rebas.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+rebas = ["admin/static/*.html"]

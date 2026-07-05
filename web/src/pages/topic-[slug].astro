@@ -138,8 +138,8 @@ const boardHref = issueHref(board.id, issue.date);
     border-bottom: 1px solid var(--hairline);
   }
 
-  /* ≤880px 板块导航条吸顶（高 46px），返回条叠在它下面 */
-  @media (max-width: 880px) {
+  /* ≤960px 板块导航条吸顶（高 46px），返回条叠在它下面——断点须与 Masthead 一致 */
+  @media (max-width: 960px) {
     .returnbar {
       top: 46px;
     }
