@@ -190,18 +190,14 @@ const dateSummary = currentEntry
     color: var(--secondary);
   }
 
-  /* 单行不换行 + 横向滑动（窄屏），滚动条隐藏；桌面宽度足够时视觉不变 */
+  /* 不设 overflow 滚动：≤960 已切下拉模式覆盖窄屏，桌面行宽实测 ~890px < 容器 992px。
+     （此前的 overflow-x:auto 是 880 断点时代的横滑遗产——滚动容器会顺带裁掉
+     期次下拉的纵向面板，2026-07-05 实际踩坑） */
   .masthead__tabs {
     display: flex;
     justify-content: flex-start;
     align-items: center;
     gap: 24px;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .masthead__tabs::-webkit-scrollbar {
-    display: none;
   }
 
   .masthead__tabs > a {
