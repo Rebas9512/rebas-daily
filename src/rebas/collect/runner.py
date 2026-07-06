@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from rebas import db
-from rebas.collect import arxiv, boards, feeds, hf, journals
+from rebas.collect import arxiv, boards, feeds, hf, journals, reddit
 from rebas.collect.base import FetchResult, KeywordMatcher, fetch_url, make_client, utcnow_iso
 from rebas.config import Source, load_config, load_profile, load_sources
 
@@ -26,6 +26,7 @@ PARSERS = {
     "gh_trending": boards.parse_gh_trending,
     "openalex_journal": journals.parse_openalex_journal,
     "jmlr_volume": journals.parse_jmlr_volume,
+    "reddit_rss": reddit.parse_reddit_rss,
 }
 
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池
@@ -72,7 +73,11 @@ def _is_due(conn, source: Source, now: datetime) -> bool:
     return now - last >= timedelta(hours=source.fetch_interval_hours)
 
 
-def run_collect(force: bool = False) -> list[SourceStats]:
+def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
+    """一轮采集。双车道：常规轮只跑 pace_seconds=0 的源（并发）；
+    paced=True 只跑慢车道源（串行 + 源间隔 pace_seconds，专用 cron 滴灌，
+    见 docs/OPERATIONS.md）——Reddit 等按 IP 严格限速的源连发即 429，
+    绝不能进 8 线程并发池。"""
     conf = load_config()
     conn = db.init_db(conf.db_path)
     now = datetime.now(timezone.utc)
@@ -81,10 +86,10 @@ def run_collect(force: bool = False) -> list[SourceStats]:
     sources = load_sources(enabled_only=True)
     supported = []
     for s in sources:
-        if s.type in PARSERS:
-            supported.append(s)
-        else:
+        if s.type not in PARSERS:
             all_stats.append(SourceStats(s.id, status="unsupported"))
+        elif bool(s.pace_seconds) == paced:
+            supported.append(s)
 
     due = [s for s in supported if force or _is_due(conn, s, now)]
     # 画像缺失只跳过该板块的源，不让整轮采集崩（新增板块忘建 profile 的兜底）
@@ -119,18 +124,30 @@ def run_collect(force: bool = False) -> list[SourceStats]:
 
     fetched: dict[str, FetchResult | Exception] = {}
     with make_client() as client:
-        with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-            futs = {
-                ex.submit(_fetch_retry_5xx, client, s.endpoint,
-                          etag=etag, last_modified=lm): s
-                for s, etag, lm in jobs
-            }
-            for fut in as_completed(futs):
-                s = futs[fut]
+        if paced:
+            # 慢车道：严格串行，源与源之间睡 pace_seconds（同域限速按 IP 计，
+            # 并发毫无意义且互相打成 429）
+            for i, (s, etag, lm) in enumerate(jobs):
+                if i:
+                    time.sleep(s.pace_seconds)
                 try:
-                    fetched[s.id] = fut.result()
+                    fetched[s.id] = _fetch_retry_5xx(client, s.endpoint,
+                                                     etag=etag, last_modified=lm)
                 except Exception as exc:  # noqa: BLE001 —— 单源失败不中断整轮
                     fetched[s.id] = exc
+        else:
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+                futs = {
+                    ex.submit(_fetch_retry_5xx, client, s.endpoint,
+                              etag=etag, last_modified=lm): s
+                    for s, etag, lm in jobs
+                }
+                for fut in as_completed(futs):
+                    s = futs[fut]
+                    try:
+                        fetched[s.id] = fut.result()
+                    except Exception as exc:  # noqa: BLE001 —— 单源失败不中断整轮
+                        fetched[s.id] = exc
 
         # 解析 + 入库（串行）
         for s in due:

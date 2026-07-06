@@ -42,6 +42,8 @@ class Source:
     paywall: bool = False
     kind: str = "article"     # 条目类型覆盖：期刊 TOC 源设 "paper"（PAPER 标签+沉淀期口径）
     pool_days: int = 0        # 顶刊池：>0 时该源候选在出刊窗保留 N 天（落选不清扫，见 stages._window_clause）
+    pace_seconds: int = 0     # 慢车道：>0 = 该源限速严（Reddit ~1请求/分钟/IP），常规 collect 跳过，
+                              # 由 collect --paced（专用 cron）串行慢抓、源间隔此秒数
 
 
 @dataclass(frozen=True)

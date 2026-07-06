@@ -1,6 +1,6 @@
 # rebas_daily 信息源清单（实测于 2026-07-03，详见 vault: 02 信息源规划.md）
 #
-# type    : 采集器类型  rss | arxiv_rss | gnews_rss | hf_papers | hf_models | hn_algolia | gh_trending | reddit_oauth
+# type    : 采集器类型  rss | arxiv_rss | gnews_rss | hf_papers | hf_models | hn_algolia | gh_trending | reddit_rss | reddit_oauth
 #           - rss:        标准 RSS/Atom（解析前先 lstrip，Dezeen 等源开头有空白）
 #           - arxiv_rss:  arXiv 日更 feed（跳过 replace 公告、论文 ID 规范化、预筛前置）
 #           - gnews_rss:  Google News RSS 兜底（链接是跳转 URL，入库前经 batchexecute 解析真实地址）
@@ -8,10 +8,14 @@
 #           - hf_models:  HF Trending Models JSON API（下载量/点赞信号）
 #           - hn_algolia: HN Algolia / Lobsters JSON API（带 points/评论数信号）
 #           - gh_trending: GitHub Trending 页面解析
+#           - reddit_rss: subreddit top.rss 公开通道（无凭证；链接帖用外链入库当发现层，
+#                         自文帖用讨论页+selftext。限速 ~1请求/分/IP → 必须配 pace_seconds）
 # content : 源自身提供的内容深度  fulltext | abstract | headline
 #           headline 源在条目入围后由管线 lazy fetch 原文全文（trafilatura）
 # prefilter = true : 体量大，入库前先按板块画像做关键词预筛（代码级，零成本）
 # paywall = true   : 全文在付费墙后，只能拿到标题+导语，靠多源聚类补充
+# pace_seconds > 0 : 慢车道源。常规 collect 跳过，由 `rebas collect --paced`
+#                    （独立 cron，每小时）串行慢抓、源间隔此秒数——严格限速源并发即 429
 
 # ============ 学术板块（MVP 启用） ============
 
@@ -303,25 +307,53 @@ content = "headline"
 fetch_interval_hours = 12
 enabled = false             # 可用，但条目偏消费产品，噪音大，按需启用
 
+# Reddit：官方 Data API 审批未下（2025-11 新政，约 2~4 周），过渡走公开 RSS 通道
+# （reddit_rss，2026-07-06 双端实测 200；无凭证 JSON 端点已全面 403）。慢车道 pace=90s。
+# API 获批后可升级 reddit_oauth 解锁得分/评论数信号与更高配额（.secrets/reddit.toml 模板已备）。
+
 [[source]]
 id = "reddit-ml"
 board = "tech"
 name = "r/MachineLearning 日榜"
-type = "reddit_oauth"
-endpoint = "https://oauth.reddit.com/r/MachineLearning/top?t=day&limit=25"
+type = "reddit_rss"
+endpoint = "https://www.reddit.com/r/MachineLearning/top.rss?t=day&limit=25"
 content = "headline"
 fetch_interval_hours = 6
-enabled = false             # 匿名抓取被封(403)；官方 API 2025-11 起需预审批（约 2~4 周），获批+凭证就位后启用，见 02 文档 §8
+pace_seconds = 90
+enabled = true
 
 [[source]]
 id = "reddit-localllama"
 board = "repos"
 name = "r/LocalLLaMA 日榜"
-type = "reddit_oauth"
-endpoint = "https://oauth.reddit.com/r/LocalLLaMA/top?t=day&limit=25"
+type = "reddit_rss"
+endpoint = "https://www.reddit.com/r/LocalLLaMA/top.rss?t=day&limit=25"
 content = "headline"
 fetch_interval_hours = 6
-enabled = false             # 同上，待 Reddit 凭证就位
+pace_seconds = 90
+enabled = true
+
+[[source]]
+id = "reddit-quant"
+board = "quant"
+name = "r/quant 日榜"
+type = "reddit_rss"
+endpoint = "https://www.reddit.com/r/quant/top.rss?t=day&limit=25"
+content = "headline"
+fetch_interval_hours = 6
+pace_seconds = 90
+enabled = true
+
+[[source]]
+id = "reddit-dataeng"
+board = "data"
+name = "r/dataengineering 日榜"
+type = "reddit_rss"
+endpoint = "https://www.reddit.com/r/dataengineering/top.rss?t=day&limit=25"
+content = "headline"
+fetch_interval_hours = 6
+pace_seconds = 90
+enabled = true
 
 # X/Twitter：官方 API 免费档读取额度不可用，付费档不划算；
 # 登录态抓取违反 X ToS、有账号被限流/封禁风险——如确要接入，

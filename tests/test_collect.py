@@ -338,3 +338,65 @@ def test_openalex_url_change_guard(tmp_path):
     src = make_source(id="oa-test", board="data", type="openalex_journal")
     items, _ = parse_openalex_journal(src, json.dumps(payload).encode(), conn=conn)
     assert items == []      # 跨 URL 重复被拦下
+
+
+REDDIT_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+<entry>
+  <author><name>/u/builder</name></author>
+  <content type="html">&lt;table&gt;&lt;tr&gt;&lt;td&gt;&lt;span&gt;&lt;a href="https://huggingface.co/acme/model-x"&gt;[link]&lt;/a&gt;&lt;/span&gt; &lt;span&gt;&lt;a href="https://www.reddit.com/r/LocalLLaMA/comments/aaa/model_x/"&gt;[comments]&lt;/a&gt;&lt;/span&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;</content>
+  <link href="https://www.reddit.com/r/LocalLLaMA/comments/aaa/model_x/"/>
+  <updated>2026-07-06T08:00:00+00:00</updated>
+  <title>New open model X released</title>
+  <media:thumbnail url="https://external-preview.redd.it/thumb1.png"/>
+</entry>
+<entry>
+  <author><name>/u/asker</name></author>
+  <content type="html">&lt;!-- SC_OFF --&gt;&lt;div class="md"&gt;&lt;p&gt;I benchmarked five quant runtimes and here are the numbers...&lt;/p&gt;&lt;/div&gt;&lt;!-- SC_ON --&gt; &lt;span&gt;&lt;a href="https://www.reddit.com/r/LocalLLaMA/comments/bbb/benchmarks/"&gt;[link]&lt;/a&gt;&lt;/span&gt;</content>
+  <link href="https://www.reddit.com/r/LocalLLaMA/comments/bbb/benchmarks/"/>
+  <updated>2026-07-06T09:30:00+00:00</updated>
+  <title>Benchmark: five quant runtimes compared</title>
+</entry>
+<entry>
+  <author><name>/u/imgposter</name></author>
+  <content type="html">&lt;span&gt;&lt;a href="https://i.redd.it/pic.png"&gt;[link]&lt;/a&gt;&lt;/span&gt;</content>
+  <link href="https://www.reddit.com/r/LocalLLaMA/comments/ccc/meme/"/>
+  <updated>2026-07-06T10:00:00+00:00</updated>
+  <title>Look at this chart</title>
+  <media:thumbnail url="https://preview.redd.it/pic.png?width=640"/>
+</entry>
+</feed>"""
+
+
+def test_reddit_rss_parser():
+    """链接帖用外链（发现层合并去重）；自文帖用讨论页+selftext；redd.it 媒体不算外链。"""
+    from rebas.collect.reddit import parse_reddit_rss
+
+    src = make_source(id="reddit-t", type="reddit_rss", board="repos",
+                      pace_seconds=90)
+    items, filtered = parse_reddit_rss(src, REDDIT_FIXTURE)
+    assert filtered == 0 and len(items) == 3
+    link_post, self_post, img_post = items
+
+    assert link_post.url == "https://huggingface.co/acme/model-x"   # 外链为条目 URL
+    assert link_post.author == "builder"                            # /u/ 前缀剥掉
+    assert link_post.image_url == "https://external-preview.redd.it/thumb1.png"
+    assert link_post.summary is None                                # 链接帖无 selftext
+
+    assert "reddit.com/r/LocalLLaMA/comments/bbb" in self_post.url  # 自文帖用讨论页
+    assert "benchmarked five quant runtimes" in self_post.summary   # selftext 进 summary
+    assert self_post.published_at == "2026-07-06T09:30:00+00:00"
+
+    assert "reddit.com/r/LocalLLaMA/comments/ccc" in img_post.url   # redd.it 媒体≠外链
+
+
+def test_paced_lane_source_parsing():
+    """pace_seconds 配置加载 + 双车道分流语义（bool(pace) == paced）。"""
+    from rebas.config import load_sources
+
+    sources = load_sources(enabled_only=True)
+    paced = [s for s in sources if s.pace_seconds > 0]
+    assert {s.type for s in paced} == {"reddit_rss"}       # 当前慢车道只有 Reddit
+    assert all(s.pace_seconds >= 60 for s in paced)        # 实测限速 ~1req/min，间隔须 ≥60s
+    fast = [s for s in sources if not s.pace_seconds]
+    assert not any(s.type == "reddit_rss" for s in fast)   # Reddit 绝不进并发快车道

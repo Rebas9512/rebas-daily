@@ -54,14 +54,19 @@ def status() -> None:
 @app.command()
 def collect(
     force: bool = typer.Option(False, "--force", help="忽略抓取间隔，全部源立即抓一轮"),
+    paced: bool = typer.Option(False, "--paced", help="只跑慢车道源（pace_seconds>0 串行慢抓，"
+                                                      "Reddit 等严格限速源专用，走独立 cron）"),
 ) -> None:
-    """跑一轮采集入库：到期源 → 并发抓取 → 解析 → 去重入库。"""
+    """跑一轮采集入库：到期源 → 并发抓取 → 解析 → 去重入库。
+
+    双车道：默认只跑常规源；--paced 只跑慢车道源（两条 cron 互不重叠）。"""
     from rebas.collect.runner import run_collect
 
-    stats = run_collect(force=force)
+    stats = run_collect(force=force, paced=paced)
     ran = [s for s in stats if s.status not in ("unsupported",)]
     skipped_srcs = len(stats) - len(ran)
-    typer.echo(f"采集完成：{len(ran)} 个源" + (f"（{skipped_srcs} 个类型未支持，跳过）" if skipped_srcs else ""))
+    lane = "慢车道" if paced else ""
+    typer.echo(f"{lane}采集完成：{len(ran)} 个源" + (f"（{skipped_srcs} 个类型未支持，跳过）" if skipped_srcs else ""))
     for s in ran:
         mark = {"ok": "✓", "304": "=", "error": "✗"}.get(s.status, "?")
         typer.echo(f"  {mark} {s.source_id:22s} {s.counts_line()}")

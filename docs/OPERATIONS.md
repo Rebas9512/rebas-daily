@@ -47,6 +47,8 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 
 机制：`publish --boards a,b` = 部分模式（只跑指定板块、不推进状态不渲染）；收尾批幂等扫尾 + `--refill` 补充轮兜底薄板块；导出层发布闸门只出 `issue_date ≤ 达拉斯今天` 的期次。**顺延/兜底不做显式额度检测**：靠 issue 状态检查点 + 板块级幂等守卫——做过的零 token 跳过，没做完的自动重试。
 
+**慢车道采集**（每小时 :25，独立 cron）：`rebas collect --paced` 只跑 `pace_seconds > 0` 的源，串行抓取、源间隔 pace 秒——Reddit 等按 IP 严格限速的源（实测 ~1 请求/分钟，连发即 429）绝不能进批次采集的 8 线程并发池。到期判定与常规源共用 fetch_interval（Reddit 源 6h → 每天 4 次滴灌）；独立 `data/paced.lock`（批次的 cron.lock 会被 LLM 长任务占数小时，慢车道不等它）；日志 `data/logs/paced.log`。候选照常入池，出刊管线零感知。新增慢车道源只需在 sources.toml 配 `pace_seconds`。
+
 **部署三步**（脚本在 `scripts/`，Ubuntu 24.04）：
 1. 本机首次搬家：`scripts/vps_sync.sh --with-secrets root@<ip>`（之后日常推代码不带 `--with-secrets`——VPS 是数据与凭证唯一正本）
 2. VPS 一键就绪：`bash /opt/rebas_daily/scripts/vps_bootstrap.sh`（时区/Node 22/codex+wrangler/venv/冒烟/装 crontab，幂等）

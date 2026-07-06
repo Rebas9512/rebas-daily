@@ -39,7 +39,7 @@ mkdir -p data/logs
 echo "== Codex 凭证冒烟（拷来的 .codex/ 是否在本机可用）=="
 bash scripts/verify_codex.sh status
 
-echo "== 安装 crontab（四批备刊，达拉斯时刻）=="
+echo "== 安装 crontab（五批备刊 + 慢车道采集，达拉斯时刻）=="
 crontab - <<EOF
 PATH=/usr/local/bin:/usr/bin:/bin
 DEPLOY_CMD=$ROOT/scripts/deploy_site.sh
@@ -49,7 +49,11 @@ DEPLOY_CMD=$ROOT/scripts/deploy_site.sh
 0  5  * * *  $ROOT/scripts/cron_batch.sh 2 >> $ROOT/data/logs/batch.log 2>&1
 0  10 * * *  $ROOT/scripts/cron_batch.sh 3 >> $ROOT/data/logs/batch.log 2>&1
 0  15 * * *  $ROOT/scripts/cron_batch.sh 4 >> $ROOT/data/logs/batch.log 2>&1
+0  20 * * *  $ROOT/scripts/cron_batch.sh 5 >> $ROOT/data/logs/batch.log 2>&1
+# 慢车道：Reddit 等严格限速源，每小时滴灌（到期才抓，独立锁不等批次长锁）
+25 *  * * *  cd $ROOT && flock -n data/paced.lock .venv/bin/rebas collect --paced >> $ROOT/data/logs/paced.log 2>&1
 0  1  1 * *  tail -c 1M $ROOT/data/logs/batch.log > /tmp/b.log && mv /tmp/b.log $ROOT/data/logs/batch.log
+0  2  1 * *  tail -c 1M $ROOT/data/logs/paced.log > /tmp/p.log && mv /tmp/p.log $ROOT/data/logs/paced.log
 EOF
 crontab -l | head -4
 
