@@ -1,6 +1,7 @@
 # rebas_daily 信息源清单（实测于 2026-07-03，详见 vault: 02 信息源规划.md）
 #
-# type    : 采集器类型  rss | arxiv_rss | gnews_rss | hf_papers | hf_models | hn_algolia | gh_trending | reddit_rss | reddit_oauth
+# type    : 采集器类型  rss | arxiv_rss | gnews_rss | hf_papers | hf_models | hn_algolia | gh_trending
+#           | openalex_journal | jmlr_volume | reddit_rss | nitter_rss | truth_rss | reddit_oauth(预留)
 #           - rss:        标准 RSS/Atom（解析前先 lstrip，Dezeen 等源开头有空白）
 #           - arxiv_rss:  arXiv 日更 feed（跳过 replace 公告、论文 ID 规范化、预筛前置）
 #           - gnews_rss:  Google News RSS 兜底（链接是跳转 URL，入库前经 batchexecute 解析真实地址）
