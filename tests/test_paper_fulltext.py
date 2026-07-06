@@ -7,8 +7,8 @@ import time
 
 from rebas.agents.prompts import materials_block, render_prompt
 from rebas.agents.stages import (
-    _arxiv_id, _paper_cache_item, _resolve_fulltext_arxiv_id, _strip_references,
-    discard_paper_fulltext, load_paper_fulltext, sweep_paper_cache,
+    _arxiv_id, _depth, _paper_cache_item, _resolve_fulltext_arxiv_id,
+    _strip_references, discard_paper_fulltext, load_paper_fulltext, sweep_paper_cache,
 )
 from rebas.config import load_config
 
@@ -111,6 +111,66 @@ class TestResolveArxivId:
         item = {"id": 999, "url": "https://doi.org/10.1/z", "url_canonical": "",
                 "title": title}
         assert _resolve_fulltext_arxiv_id(conn, item) is None      # 非 paper 同题不兜
+
+
+class TestDepthMarker:
+    """主编编排期材料深度：论文预计能拿到 arXiv 原文的标「全文·精读」，让主编按全文
+    档次排版，而非被源声明的摘要/标题档次误压（JMLR feed 仅标题却必得精读）。"""
+    CMAP = {"arxiv": "abstract", "ft-src": "fulltext", "paywall": "headline"}
+
+    def _conn(self, tmp_path):
+        from rebas import db
+        return db.init_db(tmp_path / "t.sqlite")
+
+    def _row(self, **kw):
+        base = {"extracted_text": None, "source_id": "arxiv", "kind": "paper",
+                "url": "", "url_canonical": "", "title": "", "id": 1, "summary": ""}
+        base.update(kw)
+        return base
+
+    def test_extracted_text_is_fulltext(self, tmp_path):
+        assert _depth(self._row(extracted_text="正文"), self.CMAP,
+                      self._conn(tmp_path)) == "全文"
+
+    def test_source_fulltext(self, tmp_path):
+        assert _depth(self._row(source_id="ft-src"), self.CMAP,
+                      self._conn(tmp_path)) == "全文"
+
+    def test_arxiv_paper_marked_deepread(self, tmp_path):
+        # 源声明 abstract、摘要还短，但自带 arXiv id → 预计精读全文
+        r = self._row(url="https://arxiv.org/abs/2507.01234", summary="短")
+        assert _depth(r, self.CMAP, self._conn(tmp_path)) == "全文·精读"
+
+    def test_journal_with_twin_deepread(self, tmp_path):
+        conn = self._conn(tmp_path)
+        title = "A Fully Specified Distinct Journal Paper Title"
+        conn.execute(
+            "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+            " kind, fetched_at) VALUES ('arxiv','data',"
+            "'https://arxiv.org/abs/2410.12936','',?, 'paper','x')", (title,))
+        conn.commit()
+        r = self._row(url="https://doi.org/10.1/x", source_id="paywall",
+                      title=title, summary="摘" * 500, id=999)
+        assert _depth(r, self.CMAP, conn) == "全文·精读"
+
+    def test_paywall_no_twin_stays_thin(self, tmp_path):
+        conn = self._conn(tmp_path)
+        r_abs = self._row(url="https://doi.org/10.1/x", source_id="paywall",
+                          summary="摘" * 500, id=9, title="Unique Paywalled No Preprint")
+        assert _depth(r_abs, self.CMAP, conn) == "摘要"       # 长摘要撑起摘要档
+        r_thin = self._row(url="https://doi.org/10.1/y", source_id="paywall",
+                           summary="太短", id=8, title="Another Unique Paywalled Thin")
+        assert _depth(r_thin, self.CMAP, conn) == "仅标题"
+
+    def test_conn_none_no_deepread(self, tmp_path):
+        # 采集/粗筛期不传 conn → 论文不判精读，回落源声明档次
+        r = self._row(url="https://arxiv.org/abs/2507.01234", summary="短")
+        assert _depth(r, self.CMAP, None) == "摘要"           # 源 content=abstract
+
+    def test_non_paper_not_deepread(self, tmp_path):
+        r = self._row(kind="news", url="https://arxiv.org/abs/2507.01234",
+                      source_id="paywall", summary="摘" * 500, title="News Links An arXiv Paper")
+        assert _depth(r, self.CMAP, self._conn(tmp_path)) == "摘要"
 
 
 class TestCacheLifecycle:

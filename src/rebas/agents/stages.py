@@ -180,11 +180,16 @@ def _source_content_map() -> dict[str, str]:
     return {s.id: s.content for s in load_sources()}
 
 
-def _depth(row, content_map: dict[str, str]) -> str:
+def _depth(row, content_map: dict[str, str], conn=None) -> str:
     if row["extracted_text"]:
         return "全文"
     if content_map.get(row["source_id"]) == "fulltext":
         return "全文"
+    # 论文在取材期会抓 arXiv 原文精读：自带 arXiv id 或库内有同题预印本的，预计能拿到全文
+    # ——让主编按"全文档次"给篇幅/立专题，而非被源声明的摘要/标题档次误压（如 JMLR feed
+    # 仅标题却必得全文精读）。仅编排期需要（传 conn），采集/粗筛期不判。
+    if conn is not None and row["kind"] == "paper" and _resolve_fulltext_arxiv_id(conn, row):
+        return "全文·精读"
     if len(row["summary"] or "") >= 400 or content_map.get(row["source_id"]) == "abstract":
         return "摘要"
     return "仅标题"
@@ -374,7 +379,8 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
 
     clause, params = _window_clause(conf)
     rows = conn.execute(
-        f"SELECT id, kind, title, summary, source_id, signals, extracted_text"
+        f"SELECT id, kind, title, summary, source_id, signals, extracted_text,"
+        f" url, url_canonical"
         f" FROM raw_items WHERE board=? AND status='screened' AND {clause}"
         f" ORDER BY CAST(json_extract(signals,'$.screen_score') AS INTEGER) DESC,"
         f"          fetched_at DESC"    # 同分新鲜优先：防顶刊池陈货挤占 editor_top 坑位
@@ -388,7 +394,7 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
     for r in rows:
         score = json.loads(r["signals"] or "{}").get("screen_score", "?")
         lines.append(
-            f'[{r["id"]}] 粗筛{score}分 {_depth(r, content_map)} {r["kind"]} | '
+            f'[{r["id"]}] 粗筛{score}分 {_depth(r, content_map, conn)} {r["kind"]} | '
             f'{r["title"][:110]} | {(r["summary"] or "")[:200]} | '
             f'{r["source_id"]} | {signals_str(r["signals"])}')
 
