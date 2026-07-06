@@ -396,7 +396,34 @@ def test_paced_lane_source_parsing():
 
     sources = load_sources(enabled_only=True)
     paced = [s for s in sources if s.pace_seconds > 0]
-    assert {s.type for s in paced} == {"reddit_rss"}       # 当前慢车道只有 Reddit
+    assert {s.type for s in paced} == {"reddit_rss", "nitter_rss"}  # 慢车道成员
     assert all(s.pace_seconds >= 60 for s in paced)        # 实测限速 ~1req/min，间隔须 ≥60s
-    fast = [s for s in sources if not s.pace_seconds]
-    assert not any(s.type == "reddit_rss" for s in fast)   # Reddit 绝不进并发快车道
+    fast = {s.type for s in sources if not s.pace_seconds}
+    assert not fast & {"reddit_rss", "nitter_rss"}         # 限速源绝不进并发快车道
+
+
+NITTER_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss xmlns:dc="http://purl.org/dc/elements/1.1/" version="2.0"><channel>
+<title>Andrej Karpathy / @karpathy</title><link>https://nitter.net/karpathy</link>
+<item>
+  <title>LLM agents are basically new operating systems</title>
+  <dc:creator>@karpathy</dc:creator>
+  <link>https://nitter.net/karpathy/status/123456789#m</link>
+  <pubDate>Mon, 06 Jul 2026 08:00:00 GMT</pubDate>
+  <description>&lt;p&gt;LLM agents are basically new operating systems&lt;/p&gt;</description>
+</item>
+</channel></rss>"""
+
+
+def test_nitter_rss_parser():
+    """条目 URL 改写回 x.com（镜像实例易死，外链与去重不依赖它）；实例代理图丢弃。"""
+    from rebas.collect.feeds import parse_nitter_rss
+
+    src = make_source(id="x-t", type="nitter_rss", board="tech", pace_seconds=120)
+    items, _ = parse_nitter_rss(src, NITTER_FIXTURE, conn=None, client=None)
+    assert len(items) == 1
+    it = items[0]
+    assert it.url == "https://x.com/karpathy/status/123456789"      # 改写 + 剥 #m
+    assert it.url_canonical.startswith("https://x.com/")
+    assert it.image_url is None                                     # 代理图不入库
+    assert it.author == "@karpathy"

@@ -27,6 +27,7 @@ PARSERS = {
     "openalex_journal": journals.parse_openalex_journal,
     "jmlr_volume": journals.parse_jmlr_volume,
     "reddit_rss": reddit.parse_reddit_rss,
+    "nitter_rss": feeds.parse_nitter_rss,
 }
 
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池

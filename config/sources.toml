@@ -355,9 +355,160 @@ fetch_interval_hours = 6
 pace_seconds = 90
 enabled = true
 
-# X/Twitter：官方 API 免费档读取额度不可用，付费档不划算；
-# 登录态抓取违反 X ToS、有账号被限流/封禁风险——如确要接入，
-# 务必用专用小号（勿用主号），Phase 2 试验项，详见 02 文档「认证源接入」。
+# X/Twitter：官方 API 免费档读取额度不可用，付费档不划算；登录态抓取违反 ToS。
+# 2026-07-06 起走 Nitter 公共镜像（nitter.net，双端实测可用）：无需账号、零登录态风险，
+# 但实例是志愿者运营、随时可能死（死了就是 error，admin 面板可见，不伤管线）。
+# nitter_rss 采集器把条目 URL 改写回 x.com——外链与去重不依赖镜像。慢车道 pace=120s。
+# 推文天然"仅标题级"→ 入选后由背调"新闻调查补充"联网补语境，正好咬合。
+
+[[source]]
+id = "x-karpathy"
+board = "tech"
+name = "X · Andrej Karpathy"
+type = "nitter_rss"
+endpoint = "https://nitter.net/karpathy/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true
+
+[[source]]
+id = "x-sama"
+board = "tech"
+name = "X · Sam Altman"
+type = "nitter_rss"
+endpoint = "https://nitter.net/sama/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true
+
+[[source]]
+id = "x-ylecun"
+board = "tech"
+name = "X · Yann LeCun"
+type = "nitter_rss"
+endpoint = "https://nitter.net/ylecun/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true
+
+[[source]]
+id = "x-demis"
+board = "tech"
+name = "X · Demis Hassabis"
+type = "nitter_rss"
+endpoint = "https://nitter.net/demishassabis/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true
+
+[[source]]
+id = "x-andrewng"
+board = "tech"
+name = "X · Andrew Ng"
+type = "nitter_rss"
+endpoint = "https://nitter.net/AndrewYNg/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true
+
+# ============ 高质量刊物标题层（2026-07-06，14 端点双端实测全绿） ============
+# 思路：有了背调"新闻调查补充"（标题→联网调查→事实材料），付费墙刊物的公开
+# headline feed 就是高质量选题信号源——标题入池、入选后调查补材料+多源聚类印证。
+# WSJ Markets / FT / Economist Finance 早已在库，本批补缺口。
+
+[[source]]
+id = "bloomberg-markets"
+board = "finance"
+name = "Bloomberg Markets"
+type = "rss"
+endpoint = "https://feeds.bloomberg.com/markets/news.rss"
+content = "headline"
+fetch_interval_hours = 4
+paywall = true
+enabled = true
+
+[[source]]
+id = "bloomberg-tech"
+board = "tech"
+name = "Bloomberg Technology"
+type = "rss"
+endpoint = "https://feeds.bloomberg.com/technology/news.rss"
+content = "headline"
+fetch_interval_hours = 4
+paywall = true
+enabled = true
+
+[[source]]
+id = "wsj-tech"
+board = "tech"
+name = "WSJ Technology"
+type = "rss"
+endpoint = "https://feeds.content.dowjones.io/public/rss/RSSWSJD"
+content = "headline"
+fetch_interval_hours = 6
+paywall = true
+enabled = true
+
+[[source]]
+id = "theinformation"
+board = "tech"
+name = "The Information"
+type = "rss"
+endpoint = "https://www.theinformation.com/feed"
+content = "headline"
+fetch_interval_hours = 6
+paywall = true
+enabled = false             # 2026-07-06 VPS 实测：CF 拦 urllib 指纹（curl 反而能过——与常见情形相反），
+                            # gnews source:/site: 索引太薄不值兜底；其独家经 TechCrunch/HN/decoder 二手进池。
+                            # 复活条件：换 curl 抓取器或非数据中心出口
+
+[[source]]
+id = "nyt-tech"
+board = "tech"
+name = "NYT Technology"
+type = "rss"
+endpoint = "https://rss.nytimes.com/services/xml/rss/nyt/Technology.xml"
+content = "headline"
+fetch_interval_hours = 6
+paywall = true
+enabled = true
+
+[[source]]
+id = "economist-business"
+board = "finance"
+name = "The Economist · Business"
+type = "rss"
+endpoint = "https://www.economist.com/business/rss.xml"
+content = "headline"
+fetch_interval_hours = 12
+paywall = true
+enabled = true
+
+[[source]]
+id = "nikkei-asia"
+board = "finance"
+name = "Nikkei Asia"
+type = "rss"
+endpoint = "https://asia.nikkei.com/rss/feed/nar"
+content = "headline"
+fetch_interval_hours = 6
+paywall = true
+enabled = true
+
+[[source]]
+id = "quanta"
+board = "data"
+name = "Quanta Magazine"
+type = "rss"
+endpoint = "https://api.quantamagazine.org/feed/"
+content = "abstract"
+fetch_interval_hours = 12
+enabled = true
 
 # ============ 财经/股票板块（Phase 2 启用） ============
 

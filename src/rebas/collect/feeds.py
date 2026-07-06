@@ -140,3 +140,19 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
             image_url=_entry_image(entry, base_url=link),
         ))
     return items, skipped
+
+
+# ---- nitter_rss：X 时间线的 Nitter 镜像（2026-07-06，慢车道源）----
+# 镜像实例（nitter.net）易死易换：条目 URL 一律改写回 x.com——刊物外链与
+# 去重键不依赖镜像；配图是实例代理 URL 同样不可靠，直接丢弃。
+_NITTER_HOST_RE = re.compile(r"^https?://nitter\.[^/]+", re.I)
+
+
+def parse_nitter_rss(source: Source, data: bytes, *, conn=None, client=None,
+                     **kw) -> tuple[list[RawItem], int]:
+    items, extra = parse_feed(source, data, conn=conn, client=client, **kw)
+    for it in items:
+        it.url = _NITTER_HOST_RE.sub("https://x.com", it.url).removesuffix("#m")
+        it.url_canonical = canonicalize_url(it.url)
+        it.image_url = None
+    return items, extra
