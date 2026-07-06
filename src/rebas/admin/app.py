@@ -43,6 +43,7 @@ SETTING_BOUNDS = {
     "site_keep_days": (1, 60),
     "paper_fulltext_max_chars": (0, 200_000),
     "paper_deepread_length": (0, 4000),
+    "paper_brief_fulltext_max_chars": (0, 200_000),
     "refill_min_topics": (0, 12),
     "research_facts_max": (0, 10),
 }

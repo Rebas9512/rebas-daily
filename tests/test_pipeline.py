@@ -494,3 +494,110 @@ class TestEditorRefill:
         s = stage_editor(conn, load_config(), None, "art", self._profile(),
                          "艺术", "2026-07-06")
         assert s["skipped"] == "topics 已存在"
+
+
+def _writer_brief_conn(tmp_path, summary="这是摘要，比较薄"):
+    import json
+
+    from rebas import db as database
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " kind, fetched_at) VALUES"
+        " ('arxiv-ai','academic','https://arxiv.org/abs/2507.01234',"
+        " 'https://arxiv.org/abs/2507.01234','论文标题',?,'paper','x')", (summary,))
+    iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " needs_image, created_at, reason) VALUES"
+        " ('2026-01-01','academic','速览题','k',?,'brief',0,'x','r')",
+        (json.dumps([iid]),))
+    conn.commit()
+    return conn, iid
+
+
+def test_stage_writer_brief_reads_fulltext(tmp_path):
+    """论文类速览也精读（2026-07-06）：brief 加载原文、裁到速览上限、写完即删缓存。"""
+    import dataclasses
+    import json
+
+    from rebas.agents.stages import stage_writer
+    from rebas.config import load_config
+
+    conn, iid = _writer_brief_conn(tmp_path)
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path,
+                               paper_brief_fulltext_max_chars=30)
+    conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
+    (conf.paper_cache_dir / f"{iid}.txt").write_text("原" * 100, encoding="utf-8")
+
+    backend = _FakeBackend(json.dumps({"card_summary": "卡", "body_md": "正文"},
+                                      ensure_ascii=False))
+    assert stage_writer(conn, conf, backend, "academic", "学术", "2026-01-01") == {
+        "written": 1}
+    prompt = backend.prompts[0]
+    assert "已抓取的全文" in prompt              # 速览也拿到原文（materials_block 精读标注）
+    assert "原" * 30 in prompt and "原" * 31 not in prompt   # 裁到 brief 上限
+    assert not (conf.paper_cache_dir / f"{iid}.txt").exists()   # 写完即删
+    assert conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 1
+
+
+def test_stage_writer_brief_fulltext_disabled(tmp_path):
+    """brief 精读上限=0 → 回旧行为：速览只用摘要，不加载也不删缓存。"""
+    import dataclasses
+    import json
+
+    from rebas.agents.stages import stage_writer
+    from rebas.config import load_config
+
+    conn, iid = _writer_brief_conn(tmp_path)
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path,
+                               paper_brief_fulltext_max_chars=0)
+    conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
+    (conf.paper_cache_dir / f"{iid}.txt").write_text("不该被读到的原文", encoding="utf-8")
+
+    backend = _FakeBackend(json.dumps({"card_summary": "卡", "body_md": "正文"},
+                                      ensure_ascii=False))
+    stage_writer(conn, conf, backend, "academic", "学术", "2026-01-01")
+    prompt = backend.prompts[0]
+    assert "已抓取的全文" not in prompt and "这是摘要" in prompt   # 未加载原文，用摘要
+    assert (conf.paper_cache_dir / f"{iid}.txt").exists()   # 未触碰
+
+
+def test_stage_writer_shared_paper_cache_refcount(tmp_path):
+    """同一论文被选进两个选题（brief+feature）时，先写的选题不能删掉后写选题仍需要的
+    精读缓存——引用计数归零才清（回归锁定：2026-07-06 review 发现的缓存误删）。"""
+    import dataclasses
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import stage_writer
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " kind, fetched_at) VALUES"
+        " ('arxiv-ai','academic','https://arxiv.org/abs/2507.09999',"
+        " 'https://arxiv.org/abs/2507.09999','共享论文','薄摘要','paper','x')")
+    xid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    # B（brief）先插入 → 更小 topic id → writer 先处理；F（feature）后
+    for key, dec in (("b-brief", "brief"), ("f-feat", "feature")):
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, needs_image, created_at, reason) VALUES"
+            " ('2026-01-01','academic',?,?,?,?,0,'x','r')",
+            (key, key, json.dumps([xid]), dec))
+    conn.commit()
+
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path,
+                               paper_brief_fulltext_max_chars=8000)
+    conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
+    (conf.paper_cache_dir / f"{xid}.txt").write_text("原文正文" * 500, encoding="utf-8")
+
+    backend = _FakeBackend(
+        json.dumps({"card_summary": "c1", "body_md": "b1"}, ensure_ascii=False),
+        json.dumps({"card_summary": "c2", "body_md": "b2"}, ensure_ascii=False))
+    assert stage_writer(conn, conf, backend, "academic", "学术", "2026-01-01") == {
+        "written": 2}
+    assert all("已抓取的全文" in p for p in backend.prompts)   # 两篇都拿到原文，无降级
+    assert not (conf.paper_cache_dir / f"{xid}.txt").exists()  # 全写完才清缓存

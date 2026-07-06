@@ -71,7 +71,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - [ ] enrich 二期：HN 反查 + HF 论文↔仓库联动；alphaXiv upvotes
 - [ ] 旧 Jinja 渲染层（`render/site.py` + templates）已停用，可删
 
-测试：`.venv/bin/pytest -q tests/`（54 项）。
+测试：`.venv/bin/pytest -q tests/`（80 项）。
 
 ## 管理后台（2026-07-05 上线）
 

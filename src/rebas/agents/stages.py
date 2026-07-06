@@ -27,8 +27,9 @@ THIN_LENGTH_CAP = 600
 
 _OG_IMAGE_RE = re.compile(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', re.I)
 
-# ---- 专题级论文原文精读（2026-07-05）----
-# 专题/头条的论文选题在取材期抓 arXiv HTML 全文给 writer 精读；速览维持摘要。
+# ---- 论文原文精读（2026-07-05；2026-07-06 扩到速览）----
+# 论文类选题在取材期抓 arXiv HTML 全文给 writer：专题精读（大上限、篇幅放宽），
+# 速览也精读（小上限、篇幅仍短——摘要太薄读不出信息增量）。缓存按较大上限抓一次两用。
 # 原文只落 data/paper_cache/ 文件（writer 写完即删，prune 兜底清扫），DB 不存全文。
 # 注意：enrich 阶段另有一个窄版 _ARXIV_ID_RE（新式 id、OpenAlex 反查用），勿混用
 _FULLTEXT_ARXIV_ID_RE = re.compile(
@@ -42,6 +43,46 @@ def _arxiv_id(*urls) -> str | None:
         m = _FULLTEXT_ARXIV_ID_RE.search(u or "")
         if m:
             return m.group(1)
+    return None
+
+
+def _first_arxiv_item(rows):
+    """选题里首个带 arXiv id 的论文条目 →(row, id)。期刊条目可能是抓不到原文的 DOI
+    链接，同选题里的 arXiv 版不该被它挡住，故取首个"带 id"的。"""
+    for r in rows:
+        if r["kind"] == "paper":
+            a = _arxiv_id(r["url"], r["url_canonical"])
+            if a:
+                return r, a
+    return None, None
+
+
+def _paper_cache_item(rows):
+    """本选题精读缓存归属的条目（fetch 抓原文、writer 读/写完清缓存都按它，同一口径，
+    共享条目不越界读删）：优先选题内自带 arXiv id 的论文条目；否则退到首个论文条目
+    （顶刊 DOI，靠同题预印本兜底解析 arXiv id）。返回 row 或 None。"""
+    target, _ = _first_arxiv_item(rows)
+    if target is not None:
+        return target
+    return next((r for r in rows if r["kind"] == "paper"), None)
+
+
+def _resolve_fulltext_arxiv_id(conn, item) -> str | None:
+    """条目的 arXiv id：自带则直取；否则按标题在库里找**同题** arXiv 预印本兜底
+    （顶刊 Nature/Science/JASA/AoS 是 DOI 论文抓不到原文，但同一篇常有 arXiv 预印本被
+    独立采进库——精确同题=同一篇，无误配风险；短标题易撞不兜）。"""
+    aid = _arxiv_id(item["url"], item["url_canonical"])
+    if aid:
+        return aid
+    title = (item["title"] or "").strip()
+    if len(title) < 12:
+        return None
+    for row in conn.execute(
+            "SELECT url, url_canonical FROM raw_items"
+            " WHERE title=? AND id!=? AND kind='paper'", (title, item["id"])):
+        a = _arxiv_id(row["url"], row["url_canonical"])
+        if a:
+            return a
     return None
 
 
@@ -512,34 +553,34 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
             conn.commit()
             time.sleep(1.0)   # 取材礼貌间隔
 
-        # 专题级论文精读：每个 feature 选题的首个论文条目抓 arXiv 原文进文件缓存。
+        # 论文精读：feature（专题精读）与 brief（速览精读，2026-07-06）选题的首个论文
+        # 条目抓 arXiv 原文进文件缓存。缓存按两者较大上限抓一次，写作时速览再裁到小上限。
         # 已成稿的选题跳过——否则 writer 删缓存后，之后每轮自愈 publish 都会白抓一遍
+        decisions = []
         if conf.paper_fulltext_max_chars > 0:
+            decisions.append("feature")
+        if conf.paper_brief_fulltext_max_chars > 0:
+            decisions.append("brief")
+        if decisions:
+            fetch_cap = max(conf.paper_fulltext_max_chars,
+                            conf.paper_brief_fulltext_max_chars)
             feats = conn.execute(
-                "SELECT id, item_ids FROM topics WHERE issue_date=? AND board=?"
-                " AND decision='feature' AND NOT EXISTS"
-                " (SELECT 1 FROM articles a WHERE a.topic_id = topics.id)",
-                (issue_date, board)).fetchall()
+                f"SELECT id, item_ids FROM topics WHERE issue_date=? AND board=?"
+                f" AND decision IN ({','.join('?' * len(decisions))}) AND NOT EXISTS"
+                f" (SELECT 1 FROM articles a WHERE a.topic_id = topics.id)",
+                (issue_date, board, *decisions)).fetchall()
             for t in feats:
                 rows = _topic_items(conn, t)
-                # 取首个"带 arXiv id"的论文条目——期刊条目可能是 DOI 链接（抓不到原文），
-                # 同选题里的 arXiv 版不应被它挡住
-                target = aid = None
-                for r in rows:
-                    if r["kind"] != "paper":
-                        continue
-                    a = _arxiv_id(r["url"], r["url_canonical"])
-                    if a:
-                        target, aid = r, a
-                        break
+                owner = _paper_cache_item(rows)
+                aid = _resolve_fulltext_arxiv_id(conn, owner) if owner else None
                 if not aid:
                     continue
                 conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
-                path = conf.paper_cache_dir / f"{target['id']}.txt"
+                path = conf.paper_cache_dir / f"{owner['id']}.txt"
                 if path.exists():
                     stats["paper_skipped"] = stats.get("paper_skipped", 0) + 1
                     continue
-                text = _fetch_arxiv_fulltext(client, aid, conf.paper_fulltext_max_chars)
+                text = _fetch_arxiv_fulltext(client, aid, fetch_cap)
                 if text:
                     path.write_text(text, encoding="utf-8")
                     stats["paper_fulltext"] = stats.get("paper_fulltext", 0) + 1
@@ -826,12 +867,27 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
         " WHERE t.issue_date=? AND t.board=? AND a.id IS NULL",
         (issue_date, board)).fetchall()
     written = 0
+    # 精读缓存按"主论文条目"归属，但主编偶发把同一论文选进多个选题（无跨选题条目去重）。
+    # 引用计数：同一缓存条目被几个待写选题当作主论文，写完最后一个才清——先写的选题不能
+    # 删掉后写选题仍需要的原文（否则那篇被静默降级为摘要版，白费 fetch 抓的原文）。
+    topic_rows = {t["id"]: _topic_items(conn, t) for t in topics}
+    ft_refs: dict[int, int] = {}
     for t in topics:
-        rows = _topic_items(conn, t)
-        # 专题级论文原文（fetch 阶段缓存的精读材料）；速览不精读维持摘要
-        fulltext = (load_paper_fulltext(conf, rows)
-                    if t["decision"] != "brief" and conf.paper_fulltext_max_chars > 0
-                    else {})
+        own = _paper_cache_item(topic_rows[t["id"]])
+        if own:
+            ft_refs[own["id"]] = ft_refs.get(own["id"], 0) + 1
+    for t in topics:
+        rows = topic_rows[t["id"]]
+        is_brief = t["decision"] == "brief"
+        # 论文原文精读材料（fetch 阶段缓存）：专题用完整上限，速览裁到较小上限——
+        # 速览仍是速览，够抓到方法要点与关键数字即可（2026-07-06 论文类速览也精读）。
+        # 只认本选题"自己的"主论文条目的缓存（与 fetch 同口径），共享条目不越界读/删。
+        ft_cap = (conf.paper_brief_fulltext_max_chars if is_brief
+                  else conf.paper_fulltext_max_chars)
+        own = _paper_cache_item(rows)
+        fulltext = load_paper_fulltext(conf, [own]) if (ft_cap > 0 and own) else {}
+        if fulltext:
+            fulltext = {k: v[:ft_cap] for k, v in fulltext.items()}
         material_total = sum(
             len(fulltext.get(r["id"]) or r["extracted_text"] or r["summary"] or "")
             for r in rows)
@@ -841,13 +897,14 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 len(f.get("fact") or "")
                 for f in json.loads(t["background"]).get("facts") or [])
         t0 = time.time()
-        if t["decision"] == "brief":
+        if is_brief:
             prompt = render_prompt(
                 "writer_brief", board_name=board_name, topic_title=t["title"],
                 reason=t["reason"] or "（主编未附理由）",
                 target_length=conf.brief_length,
                 background_block=background_block(t["background"]),
-                materials_block=materials_block(rows, per_item_limit=4000))
+                materials_block=materials_block(rows, per_item_limit=4000,
+                                                fulltext=fulltext))
         else:
             target = t["target_length"] or 1000
             if material_total < THIN_MATERIAL_CHARS:
@@ -875,8 +932,11 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                          "material_chars": material_total}),
              utcnow_iso()))
         conn.commit()
-        if fulltext:
-            # 原文用完即删（省磁盘；断点续跑安全——写失败时文件保留供重试）
+        if own:
+            ft_refs[own["id"]] -= 1
+        # 原文用完即删（省磁盘；断点续跑安全——写失败时文件保留供重试）；
+        # 但仅当没有其它待写选题还把它当主论文时才删（引用计数归零）
+        if fulltext and own and ft_refs.get(own["id"], 0) <= 0:
             discard_paper_fulltext(conf, fulltext.keys())
         written += 1
     return {"written": written}

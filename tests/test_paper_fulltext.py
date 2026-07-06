@@ -7,8 +7,8 @@ import time
 
 from rebas.agents.prompts import materials_block, render_prompt
 from rebas.agents.stages import (
-    _arxiv_id, _strip_references, discard_paper_fulltext, load_paper_fulltext,
-    sweep_paper_cache,
+    _arxiv_id, _paper_cache_item, _resolve_fulltext_arxiv_id, _strip_references,
+    discard_paper_fulltext, load_paper_fulltext, sweep_paper_cache,
 )
 from rebas.config import load_config
 
@@ -42,6 +42,75 @@ class TestStripReferences:
         # References 出现在前半段（比如目录）不截
         text = "\nReferences\n" + "正文 " * 500
         assert _strip_references(text) == text
+
+
+class TestPaperCacheItem:
+    def test_prefers_in_topic_arxiv(self):
+        rows = [
+            {"id": 1, "kind": "paper", "url": "https://doi.org/10.1/x",
+             "url_canonical": "https://doi.org/10.1/x"},
+            {"id": 2, "kind": "paper", "url": "https://arxiv.org/abs/2507.01234",
+             "url_canonical": ""},
+        ]
+        assert _paper_cache_item(rows)["id"] == 2      # 选题内 arXiv 版优先
+
+    def test_falls_back_to_first_paper(self):
+        rows = [
+            {"id": 5, "kind": "news", "url": "https://x", "url_canonical": ""},
+            {"id": 6, "kind": "paper", "url": "https://doi.org/10.1/y",
+             "url_canonical": ""},
+        ]
+        assert _paper_cache_item(rows)["id"] == 6      # 无 arXiv → 首个论文条目（DOI）
+
+    def test_none_when_no_paper(self):
+        rows = [{"id": 9, "kind": "news", "url": "https://x", "url_canonical": ""}]
+        assert _paper_cache_item(rows) is None
+
+
+class TestResolveArxivId:
+    def _conn(self, tmp_path):
+        from rebas import db
+        return db.init_db(tmp_path / "t.sqlite")
+
+    def _add(self, conn, title, arxiv, kind="paper"):
+        conn.execute(
+            "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+            " kind, fetched_at) VALUES ('s','data',?,?,?,?,'x')",
+            (arxiv, arxiv, title, kind))
+        conn.commit()
+
+    def test_own_arxiv(self, tmp_path):
+        item = {"id": 1, "url": "https://arxiv.org/abs/2507.01234",
+                "url_canonical": "", "title": "T"}
+        assert _resolve_fulltext_arxiv_id(self._conn(tmp_path), item) == "2507.01234"
+
+    def test_same_title_twin(self, tmp_path):
+        conn = self._conn(tmp_path)
+        title = "A Provably Efficient Estimator For Heavy Tailed Series"
+        self._add(conn, title, "https://arxiv.org/abs/2410.12936")
+        item = {"id": 999, "url": "https://doi.org/10.1214/x",
+                "url_canonical": "", "title": title}
+        assert _resolve_fulltext_arxiv_id(conn, item) == "2410.12936"
+
+    def test_no_twin_returns_none(self, tmp_path):
+        item = {"id": 999, "url": "https://doi.org/10.1214/x", "url_canonical": "",
+                "title": "Some Unique Published Title With No Preprint Anywhere"}
+        assert _resolve_fulltext_arxiv_id(self._conn(tmp_path), item) is None
+
+    def test_short_title_not_matched(self, tmp_path):
+        conn = self._conn(tmp_path)
+        self._add(conn, "AI", "https://arxiv.org/abs/2410.99999")
+        item = {"id": 999, "url": "https://doi.org/10.1/x", "url_canonical": "",
+                "title": "AI"}
+        assert _resolve_fulltext_arxiv_id(conn, item) is None      # 标题过短不兜
+
+    def test_non_paper_twin_ignored(self, tmp_path):
+        conn = self._conn(tmp_path)
+        title = "A News Article Mentioning An arXiv Paper Link Here"
+        self._add(conn, title, "https://arxiv.org/abs/2410.55555", kind="news")
+        item = {"id": 999, "url": "https://doi.org/10.1/z", "url_canonical": "",
+                "title": title}
+        assert _resolve_fulltext_arxiv_id(conn, item) is None      # 非 paper 同题不兜
 
 
 class TestCacheLifecycle:
@@ -103,3 +172,12 @@ class TestMaterialsBlock:
             background_block="（无背景材料）",
             materials_block=materials_block(self.ROWS, fulltext={1: "全文"}))
         assert "论文原文精读材料" in prompt and "以原文为准" in prompt
+
+    def test_brief_template_renders_with_fulltext(self):
+        # 论文类速览也精读（2026-07-06）：速览模板带原文时给"挑最有价值一点"指引
+        prompt = render_prompt(
+            "writer_brief", board_name="学术", topic_title="T", reason="R",
+            target_length=300, background_block="（无背景材料）",
+            materials_block=materials_block(self.ROWS, fulltext={1: "全文"}))
+        assert "论文原文精读材料" in prompt
+        assert "这是论文类速览" in prompt and "保持简短" in prompt

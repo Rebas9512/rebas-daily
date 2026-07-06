@@ -93,6 +93,7 @@ class AppConfig:
     site_keep_days: int
     paper_fulltext_max_chars: int
     paper_deepread_length: int
+    paper_brief_fulltext_max_chars: int
     refill_min_topics: int
     research_facts_max: int
 
@@ -131,6 +132,8 @@ def load_config() -> AppConfig:
         site_keep_days=int(publish.get("site_keep_days", 7)),
         paper_fulltext_max_chars=int(publish.get("paper_fulltext_max_chars", 40_000)),
         paper_deepread_length=int(publish.get("paper_deepread_length", 1800)),
+        paper_brief_fulltext_max_chars=int(
+            publish.get("paper_brief_fulltext_max_chars", 12_000)),
         refill_min_topics=int(publish.get("refill_min_topics", 6)),
         research_facts_max=int(publish.get("research_facts_max", 0)),
     )
