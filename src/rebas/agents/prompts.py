@@ -57,6 +57,11 @@ def background_block(background_json: str | None) -> str:
         lines.append(f"往期脉络（本刊此前报道过的事件线）：{bg['follow_up']}")
     for c in bg.get("concepts", []):
         lines.append(f"- {c.get('term')}：{c.get('note')}")
+    if bg.get("facts"):
+        lines.append("调查补充（编辑部联网检索公开报道整理、经审核的**本篇事实**，"
+                     "可作事实使用；首次引用按来源归因，如「据 Reuters 报道」）：")
+        for f in bg["facts"]:
+            lines.append(f"- {f.get('fact')}（来源：{f.get('source') or '公开报道'}）")
     return "\n".join(lines) or "（无背景材料）"
 
 

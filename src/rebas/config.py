@@ -78,6 +78,7 @@ class AppConfig:
     llm_roles: dict
     llm_call_gap: float
     llm_timeout: int
+    llm_search_roles: tuple[str, ...]
     publish_boards: tuple[str, ...]
     window_hours: int
     paper_settle_hours: int
@@ -91,6 +92,7 @@ class AppConfig:
     paper_fulltext_max_chars: int
     paper_deepread_length: int
     refill_min_topics: int
+    research_facts_max: int
 
     @property
     def db_path(self) -> Path:
@@ -114,6 +116,7 @@ def load_config() -> AppConfig:
         llm_roles=dict(llm.get("roles", {})),
         llm_call_gap=float(llm.get("call_gap_seconds", 2.0)),
         llm_timeout=int(llm.get("timeout_seconds", 300)),
+        llm_search_roles=tuple(llm.get("search_roles", [])),
         publish_boards=tuple(publish["boards"]),
         window_hours=int(publish.get("window_hours", 48)),
         paper_settle_hours=int(publish.get("paper_settle_hours", 0)),
@@ -127,6 +130,7 @@ def load_config() -> AppConfig:
         paper_fulltext_max_chars=int(publish.get("paper_fulltext_max_chars", 40_000)),
         paper_deepread_length=int(publish.get("paper_deepread_length", 1800)),
         refill_min_topics=int(publish.get("refill_min_topics", 6)),
+        research_facts_max=int(publish.get("research_facts_max", 0)),
     )
 
 

@@ -28,21 +28,27 @@ class TestPromptTemplates:
                                recent_threads_block="（空）", items_block="[1] ...")
         assert "thread_key" in editor and "材料深度决定篇幅" in editor
         assert "本期已有选题" in editor
+        # 薄材料新闻/repo 不压排版：主编被告知下游有调查编辑补材料
+        assert "调查编辑" in editor and "仅标题" in editor
         checker = render_prompt("checker", topic_title="T", materials_block="[S1] ...")
         assert "multi|single|uncertain" in checker
         researcher = render_prompt("researcher", board_name=p.name,
                                    reader_block=reader_block(p), archive_days=30,
                                    archive_block="（30 天内无往期报道）",
-                                   topics_block="[T1] ...")
+                                   facts_max=6, topics_block="[T1] ...")
         assert "教科书级" in researcher and "宁缺毋滥" in researcher
         assert "AI/ML 从业者" in researcher   # 读者画像注入
         assert "need_articles" in researcher  # 往期全文索取协议
+        assert "网络搜索工具" in researcher and "最多 6 条" in researcher  # 新闻调查补充
         r2 = render_prompt("researcher_articles", board_name=p.name,
                            reader_block=reader_block(p),
-                           archive_articles_block="[A1] ...", topics_block="[T1] ...")
+                           archive_articles_block="[A1] ...",
+                           facts_max=6, topics_block="[T1] ...")
         assert "follow_up" in r2 and "往期报道全文" in r2
+        assert "需调查补充" in r2             # 第二轮同样带调查补充协议
         bg_check = render_prompt("checker_background", items_block="[T1] ...")
         assert "ok|fix|drop" in bg_check and "宁删勿留" in bg_check
+        assert "[F#]" in bg_check and "门槛放宽" in bg_check  # facts 按新闻口径审
         writer = render_prompt("writer", board_name=p.name, topic_title="T",
                                reason="r", target_length=1000,
                                check_block="- ...", background_block="- R-hat：...",
@@ -75,6 +81,14 @@ class TestPromptTemplates:
         assert "往期脉络（本刊此前报道过的事件线）：上期讲了实现障碍" in block
         assert background_block(None) == "（无背景材料）"
         assert background_block('{"context":"","concepts":[]}') == "（无背景材料）"
+        # 新闻调查补充 facts：单独成节，带来源归因指引；无来源的给"公开报道"兜底
+        raw2 = ('{"context":"","concepts":[],"facts":['
+                '{"fact":"公司 A 于周一宣布收购","source":"Reuters"},'
+                '{"fact":"交易额 3 亿美元","source":""}]}')
+        block2 = background_block(raw2)
+        assert "调查补充" in block2 and "据 Reuters 报道" in block2
+        assert "- 公司 A 于周一宣布收购（来源：Reuters）" in block2
+        assert "- 交易额 3 亿美元（来源：公开报道）" in block2
 
 
 def test_thread_key_normalize():
@@ -191,19 +205,23 @@ def test_stage_research(tmp_path):
         {"id": 999999, "context": "", "concepts": []},   # 幽灵 id 忽略
     ]}, ensure_ascii=False))
     stats = stage_research(conn, conf, backend, "quant", profile, "量化", "2026-01-01")
-    assert stats == {"researched": 2, "with_background": 1, "archive_read": 0}
+    # 条目是 2 字摘要的 article → 两题都够薄材料新闻资格（investigated=2），模型没给 facts
+    assert stats == {"researched": 2, "with_background": 1, "archive_read": 0,
+                     "investigated": 2, "with_facts": 0}
     assert "夏普论文" in backend.prompts[0]           # 材料节选入提示词
     assert "金融概念要铺垫" in backend.prompts[0]     # 读者画像入提示词
     assert "30 天内无往期报道" in backend.prompts[0]  # 空书架如实呈现
+    assert "【需调查补充】" in backend.prompts[0]     # 薄材料新闻选题带标注
 
     bg1 = json.loads(conn.execute(
         "SELECT background FROM topics WHERE id=?", (t1,)).fetchone()[0])
     assert bg1 == {"context": "资产定价",
                    "concepts": [{"term": "夏普比率", "note": "单位风险的超额收益"}],
-                   "follow_up": ""}
+                   "facts": [], "follow_up": ""}
     bg2 = json.loads(conn.execute(
         "SELECT background FROM topics WHERE id=?", (t2,)).fetchone()[0])
-    assert bg2 == {"context": "", "concepts": [], "follow_up": ""}  # 未覆盖也落空产物 = 幂等标记
+    assert bg2 == {"context": "", "concepts": [], "facts": [],
+                   "follow_up": ""}  # 未覆盖也落空产物 = 幂等标记
     assert conn.execute("SELECT background FROM topics WHERE id=?",
                         (t3,)).fetchone()[0] is None  # 已有报道的不调查
 
@@ -252,7 +270,8 @@ def test_stage_research_archive_followup(tmp_path):
                    ensure_ascii=False))
     stats = stage_research(conn, load_config(), backend, "quant", profile,
                            "量化", "2026-07-05")
-    assert stats == {"researched": 1, "with_background": 1, "archive_read": 1}
+    assert stats == {"researched": 1, "with_background": 1, "archive_read": 1,
+                     "investigated": 1, "with_facts": 0}
     assert f"[A{past}]" in backend.prompts[0]      # 第一轮见标题索引
     assert "上期正文细节" in backend.prompts[1]    # 第二轮见全文
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
@@ -289,7 +308,8 @@ def test_checker_background_review(tmp_path):
         {"term": "大错", "verdict": "drop", "note": ""},
     ]}]}, ensure_ascii=False))
     stats = stage_checker(conn, load_config(), backend, "data", "2026-01-01")
-    assert stats == {"checked": 0, "bg_reviewed": 1, "bg_fixed": 1, "bg_dropped": 1}
+    assert stats == {"checked": 0, "bg_reviewed": 1, "bg_fixed": 1, "bg_dropped": 1,
+                     "bg_facts_fixed": 0, "bg_facts_dropped": 0}
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
                                  (tid,)).fetchone()[0])
     assert {c["term"]: c["note"] for c in bg["concepts"]} == {
@@ -297,6 +317,138 @@ def test_checker_background_review(tmp_path):
     assert bg["reviewed"] is True
     # 幂等：已审的不再进清单（FakeBackend 无剩余输出，再调用会炸 → 证明没调）
     assert stage_checker(conn, load_config(), backend, "data",
+                         "2026-01-01") == {"checked": 0}
+
+
+def test_facts_eligibility():
+    """新闻调查补充资格：非论文选题 + 材料仅标题级；论文与厚材料不投。"""
+    from rebas.agents.stages import _facts_eligible
+
+    def row(kind="article", text=None, summary=None):
+        return {"kind": kind, "extracted_text": text, "summary": summary}
+
+    assert _facts_eligible([row(summary="仅标题级短摘要")])
+    assert _facts_eligible([row(kind="repo", summary="短描述")])        # repo 也按新闻口径
+    assert not _facts_eligible([row(kind="paper", summary="短")])       # 论文不放宽
+    assert not _facts_eligible([row(text="厚" * 600)])                   # 材料够厚不需要
+    assert not _facts_eligible([row(summary="短"), row(kind="paper")])  # 混论文的选题不投
+
+
+def test_stage_research_facts(tmp_path):
+    """新闻调查补充：仅薄材料新闻题标注；facts 按上限截断；未标注题的 facts 被剥掉。"""
+    import dataclasses
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import FACTS_MARK, stage_research
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at) VALUES ('s','tech','u1','u1','只有标题的新闻',NULL,'x')")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+        " extracted_text, fetched_at) VALUES ('s','tech','u2','u2','材料充足的新闻',?,'x')",
+        ("厚" * 600,))
+    thin_iid, fat_iid = [r["id"] for r in conn.execute(
+        "SELECT id FROM raw_items ORDER BY id")]
+
+    def add_topic(key, iid):
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, needs_image, created_at, reason) VALUES"
+            " ('2026-07-06','tech',?,?,?,'brief',0,'x','r')",
+            (key, key, json.dumps([iid])))
+        return conn.execute("SELECT id FROM topics WHERE thread_key=?",
+                            (key,)).fetchone()["id"]
+
+    t_thin = add_topic("thin-news", thin_iid)
+    t_fat = add_topic("fat-news", fat_iid)
+    conn.commit()
+
+    profile = Profile(board="tech", name="科技", interests=(),
+                      reader_assumed="", reader_explain="科技新闻读者")
+    backend = _FakeBackend(json.dumps({"topics": [
+        {"id": t_thin, "context": "", "concepts": [], "facts": [
+            {"fact": "事实一", "source": "Reuters"},
+            {"fact": "事实二", "source": "官方博客"},
+            {"fact": "事实三（超上限该截掉）", "source": "X"},
+            {"fact": ""},                       # 空 fact 容错跳过
+        ]},
+        {"id": t_fat, "context": "", "concepts": [], "facts": [
+            {"fact": "越权补充（未标注题不许有）", "source": "Y"}]},
+    ]}, ensure_ascii=False))
+    conf = dataclasses.replace(load_config(), research_facts_max=2)
+    stats = stage_research(conn, conf, backend, "tech", profile, "科技", "2026-07-06")
+    assert stats["investigated"] == 1 and stats["with_facts"] == 1
+    assert f"thin-news{FACTS_MARK}" in backend.prompts[0]     # 薄题带标注
+    fat_header = next(ln for ln in backend.prompts[0].splitlines()
+                      if ln.startswith(f"[T{t_fat}]"))
+    assert FACTS_MARK not in fat_header                       # 厚材料题无标注
+
+    bg_thin = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                      (t_thin,)).fetchone()[0])
+    assert bg_thin["facts"] == [{"fact": "事实一", "source": "Reuters"},
+                                {"fact": "事实二", "source": "官方博客"}]  # 截到上限
+    bg_fat = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                     (t_fat,)).fetchone()[0])
+    assert bg_fat["facts"] == []       # 未标注题的 facts 代码层剥掉
+
+    # research_facts_max=0 → 整体关闭，无题被标注
+    conn.execute("UPDATE topics SET background=NULL")
+    conn.commit()
+    backend0 = _FakeBackend(json.dumps({"topics": []}))
+    conf0 = dataclasses.replace(load_config(), research_facts_max=0)
+    stats0 = stage_research(conn, conf0, backend0, "tech", profile, "科技", "2026-07-06")
+    assert stats0["investigated"] == 0
+    assert not any(FACTS_MARK in ln for ln in backend0.prompts[0].splitlines()
+                   if ln.startswith("[T"))    # 关闭后无题被标注
+
+
+def test_checker_background_review_facts(tmp_path):
+    """facts 审核：ok 保留 / fix 换文本留来源 / drop 删 / 漏裁决保守保留；幂等。"""
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import stage_checker
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    bg0 = {"context": "", "follow_up": "", "concepts": [], "facts": [
+        {"fact": "对的事实", "source": "Reuters"},
+        {"fact": "小错事实", "source": "官方博客"},
+        {"fact": "大错事实", "source": "X"},
+        {"fact": "漏审事实", "source": ""},
+    ]}
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " needs_image, created_at, background) VALUES"
+        " ('2026-01-01','tech','T','k','[]','brief',0,'x',?)",
+        (json.dumps(bg0, ensure_ascii=False),))
+    tid = conn.execute("SELECT id FROM topics").fetchone()["id"]
+    conn.commit()
+
+    backend = _FakeBackend(json.dumps({"topics": [{"id": tid, "facts": [
+        {"i": 1, "verdict": "ok", "note": ""},
+        {"i": 2, "verdict": "fix", "note": "修正后的事实"},
+        {"i": 3, "verdict": "drop", "note": ""},
+        {"i": "非法序号", "verdict": "drop"},        # 容错跳过
+    ]}]}, ensure_ascii=False))
+    stats = stage_checker(conn, load_config(), backend, "tech", "2026-01-01")
+    assert stats == {"checked": 0, "bg_reviewed": 1, "bg_fixed": 0, "bg_dropped": 0,
+                     "bg_facts_fixed": 1, "bg_facts_dropped": 1}
+    assert "[F2] 小错事实（来源：官方博客）" in backend.prompts[0]  # 审核清单带编号与来源
+    bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                 (tid,)).fetchone()[0])
+    assert bg["facts"] == [
+        {"fact": "对的事实", "source": "Reuters"},
+        {"fact": "修正后的事实", "source": "官方博客"},   # fix 换文本、来源保留
+        {"fact": "漏审事实", "source": ""},               # 漏裁决保守保留
+    ]
+    assert bg["reviewed"] is True
+    # 幂等：已审的不再进清单（FakeBackend 无剩余输出，再调用会炸 → 证明没调）
+    assert stage_checker(conn, load_config(), backend, "tech",
                          "2026-01-01") == {"checked": 0}
 
 

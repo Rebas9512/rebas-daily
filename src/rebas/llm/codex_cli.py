@@ -36,11 +36,14 @@ def find_codex_bin() -> str:
 
 class CodexBackend:
     def __init__(self, conf: AppConfig, roles: dict[str, str], *,
-                 call_gap: float = 2.0, timeout: int = 300):
+                 call_gap: float = 2.0, timeout: int = 300,
+                 search_roles: tuple[str, ...] = ()):
         self.codex_home = conf.codex_home
         self.roles = roles
         self.call_gap = call_gap
         self.timeout = timeout
+        # 联网搜索角色（背调查新闻用）：-c tools.web_search=true，多轮检索耗时 → 超时放宽 2 倍
+        self.search_roles = frozenset(search_roles)
         self.bin = find_codex_bin()
         self._last_call = 0.0
 
@@ -55,6 +58,8 @@ class CodexBackend:
 
     def complete(self, prompt: str, *, role: str = "default") -> str:
         model = self.roles.get(role) or self.roles.get("default")
+        search = role in self.search_roles
+        timeout = self.timeout * 2 if search else self.timeout
         for attempt in (0, 1):
             self._throttle()
             with tempfile.NamedTemporaryFile(
@@ -64,9 +69,10 @@ class CodexBackend:
             try:
                 proc = subprocess.run(
                     [self.bin, "exec", "--skip-git-repo-check", "-s", "read-only",
+                     *(["-c", "tools.web_search=true"] if search else []),
                      "--output-last-message", str(out_path),
                      *(["-m", model] if model else []), prompt],
-                    capture_output=True, text=True, timeout=self.timeout,
+                    capture_output=True, text=True, timeout=timeout,
                     env={**os.environ, "CODEX_HOME": str(self.codex_home)},
                 )
                 if proc.returncode == 0:
@@ -83,7 +89,7 @@ class CodexBackend:
                     f"{(proc.stderr or '')[-300:]}"
                 )
             except subprocess.TimeoutExpired:
-                raise LLMError(f"codex exec 超时（>{self.timeout}s, role={role}）") from None
+                raise LLMError(f"codex exec 超时（>{timeout}s, role={role}）") from None
             finally:
                 self._mark_call_done()
                 out_path.unlink(missing_ok=True)

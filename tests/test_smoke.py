@@ -10,6 +10,10 @@ def test_load_config():
     conf = cfg.load_config()
     assert conf.llm_backend in ("codex_cli", "openai_api")
     assert "academic" in conf.publish_boards
+    # search_roles 必须写在 [llm] 表内、[llm.roles] 表头之前——写错位置会被
+    # 解析成 llm.roles.search_roles 而静默失效（背调调查新闻就退化成凭记忆编）
+    assert conf.llm_search_roles == ("researcher",)
+    assert "search_roles" not in conf.llm_roles
 
 
 def test_load_sources():

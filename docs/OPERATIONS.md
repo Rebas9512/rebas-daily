@@ -22,7 +22,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - `config/config.toml` —— 全局配置（llm 后端与角色型号、出刊参数；`site_keep_days=7` 往期完整页面保留一周，更早进归档存目——渲染期策略，调大重渲染可找回）
 - `config/sources.toml` —— 信息源定义（enabled 开关随时增删）
 - `config/profiles/*.toml` —— 板块兴趣画像；`[reader]` 段 = 读者画像与**背调切入角度**（assumed=已掌握 / explain=要铺垫）：技术板块角度=概念解释，商业/艺术=背景故事，调角度直接改画像文本
-- `config/prompts/*.md` —— agent 提示词模板（string.Template `$` 占位符，改文风不动代码）；**style.md = 全刊文风单点调节**；researcher*.md = 背景调查（含 30 天往期查阅两轮协议）；checker_background.md = 背景审核
+- `config/prompts/*.md` —— agent 提示词模板（string.Template `$` 占位符，改文风不动代码）；**style.md = 全刊文风单点调节**；researcher*.md = 背景调查（含 30 天往期查阅两轮协议 + **新闻调查补充**：仅标题级的非论文选题标注【需调查补充】，背调联网搜索补事实细节，`research_facts_max=0` 关闭；搜索走 `[llm] search_roles`，须写在 `[llm.roles]` 表头之前）；checker_background.md = 背景审核（概念宁删勿留，facts 按新闻口径放宽）
 - `src/rebas/collect/` —— 七类采集器（HTTP 用 urllib 封装，**勿换 httpx**——Cloudflare 按 TLS 指纹拦）
 - `src/rebas/llm/` —— 模型抽象层（codex_cli 主力 / openai_api 预留）
 - `src/rebas/agents/` + `pipeline.py` —— 出刊各阶段 + 编排（issues.status 断点续跑）
