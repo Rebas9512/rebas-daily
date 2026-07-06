@@ -416,6 +416,41 @@ fetch_interval_hours = 8
 pace_seconds = 120
 enabled = true
 
+[[source]]
+id = "x-elonmusk"
+board = "tech"
+name = "X · Elon Musk"
+type = "nitter_rss"
+endpoint = "https://nitter.net/elonmusk/rss"
+content = "headline"
+fetch_interval_hours = 8   # 高频账号：RSS 每次只给最新 ~20 条，取的是采样不是全量
+pace_seconds = 120
+enabled = true
+
+[[source]]
+id = "x-anthropicai"
+board = "tech"
+name = "X · Anthropic 官方"
+type = "nitter_rss"
+endpoint = "https://nitter.net/AnthropicAI/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true
+
+# 川普主阵地是 Truth Social 非 X（X 号只偶发转帖，不接防双报）。
+# trumpstruth.org 是第三方归档站（实测更新到当天、100 条池、有 feed）；
+# 帖子标题是占位符，truth_rss 解析器把标题换成正文头部
+[[source]]
+id = "trumpstruth"
+board = "finance"
+name = "Trump · Truth Social（归档）"
+type = "truth_rss"
+endpoint = "https://trumpstruth.org/feed"
+content = "headline"
+fetch_interval_hours = 4
+enabled = true
+
 # ============ 高质量刊物标题层（2026-07-06，14 端点双端实测全绿） ============
 # 思路：有了背调"新闻调查补充"（标题→联网调查→事实材料），付费墙刊物的公开
 # headline feed 就是高质量选题信号源——标题入池、入选后调查补材料+多源聚类印证。
@@ -507,6 +542,29 @@ name = "Quanta Magazine"
 type = "rss"
 endpoint = "https://api.quantamagazine.org/feed/"
 content = "abstract"
+fetch_interval_hours = 12
+enabled = true
+
+# ============ Anthropic 渠道加密（2026-07-06，官网无 RSS 已确认——gnews-anthropic 继续兜官方公告） ============
+
+[[source]]
+id = "transformer-circuits"
+board = "academic"
+name = "Transformer Circuits（Anthropic 可解释性）"
+type = "rss"
+endpoint = "https://transformer-circuits.pub/feed.xml"
+content = "abstract"
+fetch_interval_hours = 12
+kind = "paper"              # 研究出版物：进论文口径（PAPER 标签+沉淀期）
+enabled = true
+
+[[source]]
+id = "claude-code-releases"
+board = "repos"
+name = "Claude Code Releases"
+type = "rss"
+endpoint = "https://github.com/anthropics/claude-code/releases.atom"
+content = "fulltext"        # atom content = 完整 changelog
 fetch_interval_hours = 12
 enabled = true
 

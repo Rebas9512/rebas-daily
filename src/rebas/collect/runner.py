@@ -28,6 +28,7 @@ PARSERS = {
     "jmlr_volume": journals.parse_jmlr_volume,
     "reddit_rss": reddit.parse_reddit_rss,
     "nitter_rss": feeds.parse_nitter_rss,
+    "truth_rss": feeds.parse_truth_rss,
 }
 
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池
@@ -131,11 +132,22 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
             for i, (s, etag, lm) in enumerate(jobs):
                 if i:
                     time.sleep(s.pace_seconds)
-                try:
-                    fetched[s.id] = _fetch_retry_5xx(client, s.endpoint,
-                                                     etag=etag, last_modified=lm)
-                except Exception as exc:  # noqa: BLE001 —— 单源失败不中断整轮
-                    fetched[s.id] = exc
+                for attempt in (0, 1):
+                    try:
+                        fetched[s.id] = _fetch_retry_5xx(client, s.endpoint,
+                                                         etag=etag, last_modified=lm)
+                        break
+                    except urllib.error.HTTPError as exc:
+                        # 429 = IP 配额被临近请求（手动跑/探测/上一轮尾部）烧掉：
+                        # 睡满两个间隔重试一次，仍失败交错误路径（interval 减半自愈）
+                        if attempt == 0 and exc.code == 429:
+                            time.sleep(s.pace_seconds * 2)
+                            continue
+                        fetched[s.id] = exc
+                        break
+                    except Exception as exc:  # noqa: BLE001 —— 单源失败不中断整轮
+                        fetched[s.id] = exc
+                        break
         else:
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
                 futs = {

@@ -427,3 +427,32 @@ def test_nitter_rss_parser():
     assert it.url_canonical.startswith("https://x.com/")
     assert it.image_url is None                                     # 代理图不入库
     assert it.author == "@karpathy"
+
+
+TRUTH_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>Donald J. Trump</title>
+<item>
+  <title>[No Title] - Post from July 6, 2026</title>
+  <link>https://trumpstruth.org/statuses/39861</link>
+  <description>Tariffs on semiconductor imports will be announced next week. Companies building in America pay NOTHING!</description>
+  <pubDate>Mon, 06 Jul 2026 16:03:25 +0000</pubDate>
+</item>
+<item>
+  <title>[No Title] - Post from July 6, 2026</title>
+  <link>https://trumpstruth.org/statuses/39860</link>
+  <description></description>
+  <pubDate>Mon, 06 Jul 2026 15:00:00 +0000</pubDate>
+</item>
+</channel></rss>"""
+
+
+def test_truth_rss_parser():
+    """占位标题换成正文头部（粗筛候选行才有信息量）；纯转发无正文保持原样。"""
+    from rebas.collect.feeds import parse_truth_rss
+
+    src = make_source(id="truth-t", type="truth_rss", board="finance")
+    items, _ = parse_truth_rss(src, TRUTH_FIXTURE, conn=None, client=None)
+    assert len(items) == 2
+    assert items[0].title.startswith("Tariffs on semiconductor imports")
+    assert items[0].content_hash != items[1].content_hash   # 换标题后哈希重算
+    assert items[1].title.startswith("[No Title]")          # 无正文保持原样

@@ -156,3 +156,17 @@ def parse_nitter_rss(source: Source, data: bytes, *, conn=None, client=None,
         it.url_canonical = canonicalize_url(it.url)
         it.image_url = None
     return items, extra
+
+
+# ---- truth_rss：Truth Social 归档站（trumpstruth.org，2026-07-06）----
+# feed 标题是占位符（"[No Title] - Post from …"），真实内容在 description。
+# 标题换成正文头部，粗筛/主编的候选行才有信息量；纯转发无正文的保持原样
+# （粗筛自然低分淘汰）。
+def parse_truth_rss(source: Source, data: bytes, *, conn=None, client=None,
+                    **kw) -> tuple[list[RawItem], int]:
+    items, extra = parse_feed(source, data, conn=conn, client=client, **kw)
+    for it in items:
+        if it.title.startswith("[No Title]") and it.summary:
+            it.title = it.summary[:120]
+            it.content_hash = content_hash(it.title)
+    return items, extra
