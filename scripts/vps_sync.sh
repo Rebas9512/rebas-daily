@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# 本机 → VPS 代码同步。用法: scripts/vps_sync.sh <user@host> [远端路径，默认 /opt/rebas_daily]
+# 本机 → VPS 代码同步。用法: scripts/vps_sync.sh [<user@host>] [远端路径，默认 /opt/rebas_daily]
+# 主机缺省时读 .secrets/.env 的 VPS_HOST（不入 git；公开文档一律 <user>@<vps> 占位）。
 #
 # 【交接语义，2026-07-04 上线后】VPS 是数据与凭证的唯一正本：
 #   - data/（数据库）与 .codex/（auth 会在 VPS 上自动刷新）、.secrets/ 默认**不再同步**，
@@ -9,9 +10,11 @@
 set -euo pipefail
 WITH_SECRETS=0
 if [ "${1:-}" = "--with-secrets" ]; then WITH_SECRETS=1; shift; fi
-HOST="${1:?用法: vps_sync.sh [--with-secrets] <user@host> [remote_path]}"
-DEST="${2:-/opt/rebas_daily}"
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DEFAULT_HOST="$(grep -oP '^VPS_HOST=\K.+' "$SRC/.secrets/.env" 2>/dev/null || true)"
+HOST="${1:-$DEFAULT_HOST}"
+[ -n "$HOST" ] || { echo "用法: vps_sync.sh [--with-secrets] <user@host> [remote_path]（或在 .secrets/.env 配 VPS_HOST）" >&2; exit 1; }
+DEST="${2:-/opt/rebas_daily}"
 
 EXTRA=(--exclude 'data/' --exclude '.codex/' --exclude '.secrets/')
 if [ "$WITH_SECRETS" = 1 ]; then
