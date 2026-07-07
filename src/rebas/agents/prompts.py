@@ -65,6 +65,31 @@ def background_block(background_json: str | None) -> str:
     return "\n".join(lines) or "（无背景材料）"
 
 
+def images_block(numbered: list[tuple[int, str]], *, is_brief: bool = False) -> str:
+    """撰写期图片审选的材料块（2026-07-07）。numbered: [(编号, 原始URL), ...]，
+    图片文件已按同一顺序附在本次调用中。空列表 = 本篇无图片材料。"""
+    if not numbered:
+        return "（本篇无图片材料）"
+    lines = [f"- 图{n}: {url}" for n, url, *_ in numbered]
+    brief_note = ("速览短文一般留 1~2 张就够，不必正文插图（保留而未插入的图会展示在"
+                  "报道页头图区）。" if is_brief else
+                  "除头图外，保留的图请尽量都在正文中安置；保留而未插入的图会集中展示在"
+                  "头图下方的图组里。")
+    return (
+        "以下图片已按编号顺序附在本次输入中，**请实际查看图片内容**再做取舍：\n"
+        + "\n".join(lines) + "\n\n"
+        "你同时是本篇的图片编辑：\n"
+        "1. **审选**：只保留信息量高、与本篇内容直接相关、画质过得去的图；"
+        "logo/banner/广告图/无关人物照/重复视角，删。宁缺毋滥——全部不留、"
+        "走纯文字版式完全可以。\n"
+        "2. **排序**：images_keep 按展示顺序给保留图的编号，**第一张是头图**"
+        "（最能代表本篇的那张），版式会自动把它放在文首，不要在正文里再插它。\n"
+        f"3. **正文插图**：{brief_note}插图方式=在最相关的段落之后独立一行写 "
+        "`![一句图注](IMG编号)`（如 `![展览现场的主装置](IMG3)`；图注给读者看，"
+        "说画面而不是复述正文，可留空）。没保留的图不要引用。"
+    )
+
+
 def signals_str(signals_json: str | None) -> str:
     sig = json.loads(signals_json or "{}")
     parts = [f"{k}={sig[k]}" for k in _SIGNAL_KEYS if k in sig]

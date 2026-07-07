@@ -170,6 +170,9 @@ def run_publish(date: str | None = None, force_stage: str | None = None,
                 swept = stages.sweep_paper_cache(conf)
                 if swept:
                     log(f"[prune] 论文原文缓存清扫 {swept} 个残留文件")
+                swept_img = stages.sweep_image_cache(conf)
+                if swept_img:
+                    log(f"[prune] 审选图缓存清扫 {swept_img} 个残留文件")
                 conn.commit()
                 continue
 

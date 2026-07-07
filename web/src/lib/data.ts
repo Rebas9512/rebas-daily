@@ -30,6 +30,8 @@ export interface Topic {
   image: string | null;
   /** 多图排版（艺术/设计板块）：上游图库 ≥2 张时给出（含 image），否则缺省 */
   images?: string[];
+  /** 撰写期已内联进正文的图（body_html 里的 figure）；头图区据此去重 */
+  images_inline?: string[];
   body_html?: string;
   read_minutes?: number;
   sources?: SourceRef[];

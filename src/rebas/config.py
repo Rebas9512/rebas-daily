@@ -96,6 +96,7 @@ class AppConfig:
     paper_brief_fulltext_max_chars: int
     refill_min_topics: int
     research_facts_max: int
+    image_review_boards: tuple[str, ...]
 
     @property
     def db_path(self) -> Path:
@@ -105,6 +106,11 @@ class AppConfig:
     def paper_cache_dir(self) -> Path:
         """专题级论文原文的临时缓存（writer 精读用，用完即删，不进 DB）。"""
         return self.data_dir / "paper_cache"
+
+    @property
+    def image_cache_dir(self) -> Path:
+        """撰写期图片审选的临时下载目录（附给 codex -i，用完即删，不进 DB）。"""
+        return self.data_dir / "image_cache"
 
 
 def load_config() -> AppConfig:
@@ -136,6 +142,8 @@ def load_config() -> AppConfig:
             publish.get("paper_brief_fulltext_max_chars", 12_000)),
         refill_min_topics=int(publish.get("refill_min_topics", 6)),
         research_facts_max=int(publish.get("research_facts_max", 0)),
+        image_review_boards=tuple(publish.get("image_review_boards",
+                                              ["art", "design"])),
     )
 
 

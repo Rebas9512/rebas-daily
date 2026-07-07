@@ -56,7 +56,7 @@ class CodexBackend:
         # gap 从调用返回时刻起算——按开始时刻算的话单次调用普遍超过 gap，节流形同虚设
         self._last_call = time.monotonic()
 
-    def complete(self, prompt: str, *, role: str = "default") -> str:
+    def complete(self, prompt: str, *, role: str = "default", images=()) -> str:
         model = self.roles.get(role) or self.roles.get("default")
         search = role in self.search_roles
         timeout = self.timeout * 2 if search else self.timeout
@@ -70,6 +70,8 @@ class CodexBackend:
                 proc = subprocess.run(
                     [self.bin, "exec", "--skip-git-repo-check", "-s", "read-only",
                      *(["-c", "tools.web_search=true"] if search else []),
+                     # 图片附件（撰写期图片审选）：-i 按顺序附图，与提示词编号对应
+                     *(x for p in images for x in ("-i", str(p))),
                      "--output-last-message", str(out_path),
                      *(["-m", model] if model else []), prompt],
                     capture_output=True, text=True, timeout=timeout,

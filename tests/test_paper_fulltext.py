@@ -229,7 +229,7 @@ class TestMaterialsBlock:
         prompt = render_prompt(
             "writer", board_name="学术", topic_title="T", reason="R",
             target_length=1200, check_block="（无核查数据）",
-            background_block="（无背景材料）",
+            background_block="（无背景材料）", images_block="（本篇无图片材料）",
             materials_block=materials_block(self.ROWS, fulltext={1: "全文"}))
         assert "论文原文精读材料" in prompt and "以原文为准" in prompt
 
@@ -238,6 +238,7 @@ class TestMaterialsBlock:
         prompt = render_prompt(
             "writer_brief", board_name="学术", topic_title="T", reason="R",
             target_length=300, background_block="（无背景材料）",
+            images_block="（本篇无图片材料）",
             materials_block=materials_block(self.ROWS, fulltext={1: "全文"}))
         assert "论文原文精读材料" in prompt
         assert "这是论文类速览" in prompt and "保持简短" in prompt

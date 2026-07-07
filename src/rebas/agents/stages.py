@@ -13,12 +13,12 @@ from datetime import datetime, timedelta, timezone
 
 from rebas import db
 from rebas.agents.prompts import (
-    background_block, check_block, materials_block, profile_block,
+    background_block, check_block, images_block, materials_block, profile_block,
     reader_block, render_prompt, signals_str,
 )
 from rebas.collect.base import all_images, first_image, make_client, strip_html, utcnow_iso
 from rebas.config import AppConfig, Profile, load_secrets, load_sources, pooled_source_groups
-from rebas.llm import LLMBackend, complete_json
+from rebas.llm import LLMBackend, LLMError, complete_json
 
 _THREAD_KEY_RE = re.compile(r"[^a-z0-9-]+")
 FETCH_TEXT_CAP = 20_000
@@ -881,6 +881,68 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
 
 # ---------- Stage 5 撰写 ----------
 
+# 撰写期图片审选（2026-07-07）：候选图下载后附给 writer（codex -i 多模态）实际查看
+_IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png",
+              "image/webp": ".webp", "image/gif": ".gif"}
+IMAGE_REVIEW_CAP = 6            # 每篇最多附几张候选图
+IMAGE_MAX_BYTES = 8_000_000     # 单图字节上限（防超大原图浪费附件与 token）
+
+
+def _prepare_topic_images(conf: AppConfig, topic_id: int, rows) -> list:
+    """图片审选的候选准备：与导出层同口径收集候选 → 下载到临时缓存。
+
+    返回 [(编号, 原始URL, 本地Path)]，编号=附件顺序（1 起，与提示词对应）。
+    下载失败/非图片/超限的候选直接剔除（对读者大概率也加载不出来）；
+    全失败或无候选返回空列表 = 本篇不审选（image_plan 留 NULL 回退旧行为）。"""
+    from rebas.render.export import _topic_images  # 懒加载：渲染依赖不拖进常规路径
+    candidates = _topic_images(None, rows, cap=IMAGE_REVIEW_CAP)
+    out = []
+    with make_client() as client:
+        for url in candidates:
+            try:
+                resp = client.get(url)
+                ctype = (resp.headers.get("Content-Type")
+                         or resp.headers.get("content-type") or "")
+                ctype = ctype.split(";")[0].strip().lower()
+                ext = _IMAGE_EXT.get(ctype)
+                if resp.status_code != 200 or not ext \
+                        or len(resp.content) > IMAGE_MAX_BYTES:
+                    continue
+                conf.image_cache_dir.mkdir(parents=True, exist_ok=True)
+                path = conf.image_cache_dir / f"t{topic_id}-{len(out) + 1}{ext}"
+                path.write_bytes(resp.content)
+                out.append((len(out) + 1, url, path))
+            except Exception:  # noqa: BLE001 —— 单图失败不阻塞撰写
+                continue
+    return out
+
+
+def sweep_image_cache(conf: AppConfig, days: int = 3) -> int:
+    """prune 兜底：清掉审选图残留（writer 中途失败时留下的），按文件 mtime。"""
+    if not conf.image_cache_dir.is_dir():
+        return 0
+    cutoff = time.time() - days * 86400
+    removed = 0
+    for p in conf.image_cache_dir.iterdir():
+        if p.is_file() and p.stat().st_mtime < cutoff:
+            p.unlink(missing_ok=True)
+            removed += 1
+    return removed
+
+
+def _parse_image_plan(result: dict, numbered: list) -> str | None:
+    """writer 的 images_keep（编号列表，展示顺序）→ image_plan JSON。
+    只认本次附过的编号、去重；numbered 为空 = 未审选，返回 None（NULL）。"""
+    if not numbered:
+        return None
+    by_n = dict((n, u) for n, u, *_ in numbered)
+    kept, seen = [], set()
+    for n in result.get("images_keep") or []:
+        if isinstance(n, int) and n in by_n and n not in seen:
+            seen.add(n)
+            kept.append([n, by_n[n]])
+    return json.dumps({"kept": kept}, ensure_ascii=False)
+
 def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                  board_name: str, issue_date: str) -> dict:
     """每篇入选选题（专题+速览）都产出报道：专题长写，速览按 brief_length 短写。"""
@@ -899,6 +961,7 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
         own = _paper_cache_item(topic_rows[t["id"]])
         if own:
             ft_refs[own["id"]] = ft_refs.get(own["id"], 0) + 1
+    review_images = board in conf.image_review_boards
     for t in topics:
         rows = topic_rows[t["id"]]
         is_brief = t["decision"] == "brief"
@@ -919,40 +982,64 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
             material_total += sum(
                 len(f.get("fact") or "")
                 for f in json.loads(t["background"]).get("facts") or [])
-        t0 = time.time()
-        if is_brief:
-            prompt = render_prompt(
-                "writer_brief", board_name=board_name, topic_title=t["title"],
-                reason=t["reason"] or "（主编未附理由）",
-                target_length=conf.brief_length,
-                background_block=background_block(t["background"]),
-                materials_block=materials_block(rows, per_item_limit=4000,
-                                                fulltext=fulltext))
-        else:
+        # 图片审选（2026-07-07）：候选图下载附给 writer 实际查看——留哪些（可全弃）、
+        # 正文何处插图由它定；下载全失败则本篇不审选（image_plan=NULL 回退旧行为）
+        numbered = _prepare_topic_images(conf, t["id"], rows) if review_images else []
+        img_paths = [p for _, _, p in numbered]
+
+        def _build_prompt(img_block: str) -> str:
+            if is_brief:
+                return render_prompt(
+                    "writer_brief", board_name=board_name, topic_title=t["title"],
+                    reason=t["reason"] or "（主编未附理由）",
+                    target_length=conf.brief_length,
+                    background_block=background_block(t["background"]),
+                    images_block=img_block,
+                    materials_block=materials_block(rows, per_item_limit=4000,
+                                                    fulltext=fulltext))
             target = t["target_length"] or 1000
             if material_total < THIN_MATERIAL_CHARS:
                 target = min(target, THIN_LENGTH_CAP)
             if fulltext and conf.paper_deepread_length:
                 # 精读专题：篇幅放宽，目标是把论文讲明白（材料有原文撑得起）
                 target = max(target, conf.paper_deepread_length)
-            prompt = render_prompt(
+            return render_prompt(
                 "writer", board_name=board_name, topic_title=t["title"],
                 reason=t["reason"] or "（主编未附理由）", target_length=target,
                 check_block=check_block(t["check_notes"]),
                 background_block=background_block(t["background"]),
+                images_block=img_block,
                 materials_block=materials_block(rows, per_item_limit=6000,
                                                 fulltext=fulltext))
-        result = complete_json(backend, prompt, role="writer")
+
+        t0 = time.time()
+        try:
+            prompt = _build_prompt(images_block(numbered, is_brief=is_brief))
+            try:
+                result = complete_json(backend, prompt, role="writer",
+                                       images=img_paths)
+            except LLMError:
+                if not img_paths:
+                    raise
+                # 带图调用失败（附件/多模态偶发问题）→ 摘图重试一次，本篇降级不审选
+                numbered = []
+                result = complete_json(
+                    backend, _build_prompt(images_block([])), role="writer")
+        finally:
+            for p in img_paths:
+                p.unlink(missing_ok=True)
         # 防御性清洗：文末孤立的空标题标记（模型输出截断残渣，避免渲染出空标题）
         body_md = re.sub(r"(?:\n#{1,6}[ \t]*)+\s*$", "", (result.get("body_md") or "")).rstrip()
         conn.execute(
             "INSERT INTO articles (topic_id, card_summary, body_md, credibility_notes,"
-            " image_refs, model_meta, created_at) VALUES (?,?,?,?,?,?,?)",
+            " image_refs, image_plan, model_meta, created_at) VALUES (?,?,?,?,?,?,?,?)",
             (t["id"], strip_html(result.get("card_summary", ""))[:200],
              body_md, t["check_notes"],
              json.dumps([r["image_url"] for r in rows if r["image_url"]][:3]),
+             _parse_image_plan(result, numbered),
              json.dumps({"role": "writer", "elapsed_s": round(time.time() - t0, 1),
-                         "material_chars": material_total}),
+                         "material_chars": material_total,
+                         **({"images_reviewed": len(numbered)} if numbered else {})}),
              utcnow_iso()))
         conn.commit()
         if own:

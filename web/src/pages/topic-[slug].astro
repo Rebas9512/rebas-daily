@@ -45,9 +45,13 @@ const slotLabel =
       : "速览 BRIEF";
 const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
 const boardHref = issueHref(board.id, issue.date);
-// 多图报道页（艺术/设计）：hero 主图 + 其余入图库网格（最多共 6 张）
-const heroImages =
-  topic.images && topic.images.length > 1 ? topic.images.slice(0, 6) : null;
+// 多图报道页（艺术/设计）：hero 主图 + 其余入图库网格（最多共 6 张）。
+// 撰写期已内联进正文的图不再进头图区（防双显）——writer 插图后网格自然缩小或消失
+const inlineUsed = new Set(topic.images_inline ?? []);
+const heroPool = topic.images
+  ? [topic.images[0], ...topic.images.slice(1).filter((u) => !inlineUsed.has(u))]
+  : null;
+const heroImages = heroPool && heroPool.length > 1 ? heroPool.slice(0, 6) : null;
 ---
 
 <Layout
@@ -314,6 +318,30 @@ const heroImages =
   .art-body :global(a:hover) {
     color: var(--accent);
     border-bottom-color: var(--accent);
+  }
+
+  /* 撰写期审选的正文插图（body_html 里的 figure，图注在 figcaption） */
+  .art-body :global(figure) {
+    margin: 28px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .art-body :global(figure img) {
+    width: 100%;
+    max-height: 480px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 1px solid var(--hairline);
+    background: var(--soft);
+  }
+
+  .art-body :global(figcaption) {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    color: var(--secondary);
   }
 
   .art-body :global(code) {

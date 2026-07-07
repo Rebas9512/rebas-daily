@@ -27,8 +27,8 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 - `src/rebas/llm/` —— 模型抽象层（codex_cli 主力 / openai_api 预留）
 - `src/rebas/agents/` + `pipeline.py` —— 出刊各阶段 + 编排（issues.status 断点续跑）
 - `src/rebas/render/export.py` —— SQLite → `web/data/*.json` 数据契约 + 调 Astro 构建；构建期 LaTeX→MathML
-- `web/` —— 前端（Astro + TS，零 JS 渲染 + PWA；渐进增强仅 SW 注册与移动端分享键两处）→ `site/`；设计 token 在 `web/src/styles/global.css`；**`build.inlineStylesheets="always"` 必须保留**（否则 file:// 直开与子路径托管全裂）；艺术/设计板块多图排版（`raw_items.image_urls` 图库 ≥2 时导出 `images`，头条/专题卡/报道页多图版式，其余板块单图）
-- `data/rebas.sqlite` —— 原始池 + 管线产物（gitignored）；`data/paper_cache/` = 精读原文临时缓存（writer 用完即删，prune 兜底清扫）
+- `web/` —— 前端（Astro + TS，零 JS 渲染 + PWA；渐进增强仅 SW 注册与移动端分享键两处）→ `site/`；设计 token 在 `web/src/styles/global.css`；**`build.inlineStylesheets="always"` 必须保留**（否则 file:// 直开与子路径托管全裂）；艺术/设计板块多图排版（`raw_items.image_urls` 图库 ≥2 时导出 `images`，头条/专题卡/报道页多图版式，其余板块单图）；`[publish] image_review_boards` 板块的撰写调用附候选图（codex -i 多模态），writer 审选落 `articles.image_plan`——kept 即展示集（空=无图版式），正文 `![图注](IMG编号)` 令牌在导出期转内联 figure
+- `data/rebas.sqlite` —— 原始池 + 管线产物（gitignored）；`data/paper_cache/` = 精读原文临时缓存、`data/image_cache/` = 撰写期审选图临时下载（都是 writer 用完即删，prune 兜底清扫）
 - `.codex/`、`.secrets/` —— 凭证（gitignored，chmod 700）
 
 ## 云端部署（四主批 + 兜底批备刊模型）

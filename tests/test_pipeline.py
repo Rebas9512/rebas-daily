@@ -49,19 +49,26 @@ class TestPromptTemplates:
         bg_check = render_prompt("checker_background", items_block="[T1] ...")
         assert "ok|fix|drop" in bg_check and "宁删勿留" in bg_check
         assert "[F#]" in bg_check and "门槛放宽" in bg_check  # facts 按新闻口径审
+        from rebas.agents.prompts import images_block
         writer = render_prompt("writer", board_name=p.name, topic_title="T",
                                reason="r", target_length=1000,
                                check_block="- ...", background_block="- R-hat：...",
+                               images_block=images_block(
+                                   [(1, "https://x.com/a.jpg")]),
                                materials_block="[S1] ...")
         assert "最多 3 条要点" in writer and "card_summary" in writer
         assert "写作基调" in writer      # style.md 自动注入
         assert "背景材料" in writer and "- R-hat：..." in writer
+        assert "images_keep" in writer and "图片编辑" in writer  # 图片审选协议
+        assert "IMG编号" in writer                                # 正文插图令牌
         brief = render_prompt("writer_brief", board_name=p.name, topic_title="T",
                               reason="r", target_length=300,
                               background_block="（无背景材料）",
+                              images_block=images_block([], is_brief=True),
                               materials_block="[S1] ...")
         assert "card_summary" in brief and "不用小标题" in brief
         assert "写作基调" in brief       # style.md 同样注入速览模板
+        assert "本篇无图片材料" in brief  # 无图时材料块为占位说明
 
     def test_check_block_formats(self):
         raw = ('{"claims":[{"claim":"X 提升 2 倍","support":1,"confidence":"single"}],'
@@ -154,9 +161,11 @@ class _FakeBackend:
     def __init__(self, *outputs):
         self.outputs = list(outputs)
         self.prompts = []
+        self.images = []          # 每次调用收到的图片附件路径（撰写期图片审选）
 
-    def complete(self, prompt, *, role="default"):
+    def complete(self, prompt, *, role="default", images=()):
         self.prompts.append(prompt)
+        self.images.append(tuple(images))
         return self.outputs.pop(0)
 
 
@@ -579,6 +588,104 @@ def test_stage_writer_brief_fulltext_disabled(tmp_path):
     prompt = backend.prompts[0]
     assert "已抓取的全文" not in prompt and "这是摘要" in prompt   # 未加载原文，用摘要
     assert (conf.paper_cache_dir / f"{iid}.txt").exists()   # 未触碰
+
+
+def _writer_design_conn(tmp_path):
+    import json
+
+    from rebas import db as database
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at) VALUES ('designboom','design','https://x.com/p','https://x.com/p',"
+        " '设计条目','摘要文字','x')")
+    iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " needs_image, created_at, reason) VALUES"
+        " ('2026-01-01','design','设计题','k',?,'feature',0,'x','r')",
+        (json.dumps([iid]),))
+    conn.commit()
+    return conn
+
+
+def test_stage_writer_image_review(tmp_path, monkeypatch):
+    """撰写期图片审选：候选图附给 writer、images_keep 按展示顺序落 image_plan
+    （幽灵编号忽略、去重），临时图用完即删。"""
+    import dataclasses
+    import json
+
+    from rebas.agents import stages
+    from rebas.config import load_config
+
+    conn = _writer_design_conn(tmp_path)
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    p1, p2 = tmp_path / "t1-1.jpg", tmp_path / "t1-2.jpg"
+    p1.write_bytes(b"x")
+    p2.write_bytes(b"y")
+    monkeypatch.setattr(
+        stages, "_prepare_topic_images",
+        lambda *_: [(1, "https://img.x/1.jpg", p1), (2, "https://img.x/2.jpg", p2)])
+
+    backend = _FakeBackend(json.dumps({
+        "card_summary": "卡", "body_md": "正文\n\n![现场](IMG2)",
+        "images_keep": [2, 1, 99, 2]}, ensure_ascii=False))
+    assert stages.stage_writer(conn, conf, backend, "design", "设计",
+                               "2026-01-01") == {"written": 1}
+    assert "图1: https://img.x/1.jpg" in backend.prompts[0]   # 图片材料块
+    assert "images_keep" in backend.prompts[0]
+    assert backend.images[0] == (p1, p2)                       # 附件按编号顺序
+    plan = json.loads(conn.execute(
+        "SELECT image_plan FROM articles").fetchone()[0])
+    assert plan == {"kept": [[2, "https://img.x/2.jpg"],
+                             [1, "https://img.x/1.jpg"]]}      # 顺序保留，99/重复忽略
+    assert not p1.exists() and not p2.exists()                 # 用完即删
+
+
+def test_stage_writer_image_review_drop_all_and_fallback(tmp_path, monkeypatch):
+    """全弃 = kept 空列表照样落库（有效裁决→无图版式）；带图调用失败时摘图重试，
+    本篇降级为不审选（image_plan NULL 回退旧行为）。"""
+    import dataclasses
+    import json
+
+    from rebas.agents import stages
+    from rebas.config import load_config
+    from rebas.llm import LLMError
+
+    # 场景 1：全弃
+    conn = _writer_design_conn(tmp_path)
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    p1 = tmp_path / "a.jpg"
+    p1.write_bytes(b"x")
+    monkeypatch.setattr(stages, "_prepare_topic_images",
+                        lambda *_: [(1, "https://img.x/1.jpg", p1)])
+    backend = _FakeBackend(json.dumps(
+        {"card_summary": "卡", "body_md": "正文", "images_keep": []},
+        ensure_ascii=False))
+    stages.stage_writer(conn, conf, backend, "design", "设计", "2026-01-01")
+    assert json.loads(conn.execute("SELECT image_plan FROM articles").fetchone()[0]) \
+        == {"kept": []}
+
+    # 场景 2：带图调用炸 → 摘图重试成功，image_plan 为 NULL
+    conn2 = _writer_design_conn(tmp_path / "b")
+    p2 = tmp_path / "b.jpg"
+    p2.write_bytes(b"x")
+    monkeypatch.setattr(stages, "_prepare_topic_images",
+                        lambda *_: [(1, "https://img.x/1.jpg", p2)])
+
+    class _FlakyImages(_FakeBackend):
+        def complete(self, prompt, *, role="default", images=()):
+            if images:
+                raise LLMError("附件失败")
+            return super().complete(prompt, role=role, images=images)
+
+    backend2 = _FlakyImages(json.dumps(
+        {"card_summary": "卡", "body_md": "正文"}, ensure_ascii=False))
+    assert stages.stage_writer(conn2, conf, backend2, "design", "设计",
+                               "2026-01-01") == {"written": 1}
+    assert "本篇无图片材料" in backend2.prompts[0]   # 重试提示词已摘图
+    assert conn2.execute("SELECT image_plan FROM articles").fetchone()[0] is None
+    assert not p2.exists()
 
 
 def test_stage_writer_shared_paper_cache_refcount(tmp_path):

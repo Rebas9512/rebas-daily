@@ -129,6 +129,8 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "raw_items", "last_seen_at", "TEXT")  # 榜单 revive 的"出榜断档"口径
     # 2026-07-07 多图排版
     _ensure_column(conn, "raw_items", "image_urls", "TEXT")  # JSON string[] 正文图库
+    # 2026-07-07 撰写期图片审选：{"kept": [[编号, url], ...]}，NULL=未审选（回退旧行为）
+    _ensure_column(conn, "articles", "image_plan", "TEXT")
     conn.execute(  # 并发 publish 兜底：同期同板块同事件线只允许一条
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_issue_thread"
         " ON topics(issue_date, board, thread_key)")

@@ -32,5 +32,8 @@ ${background_block}
 - 方法设置、实验数字、消融结论以原文为准（与摘要或他源转述冲突时也以原文为准）——但依然只写材料里有的内容。
 ${materials_block}
 
+## 图片材料（审选与插图规则见块内说明）
+${images_block}
+
 ## 只输出 JSON：
-{"card_summary": "首页卡片摘要，≤60字，中文", "body_md": "专题正文 markdown"}
+{"card_summary": "首页卡片摘要，≤60字，中文", "body_md": "专题正文 markdown", "images_keep": [保留图片的编号，按展示顺序；无图片材料或全不留时给 []]}

@@ -141,6 +141,67 @@ def test_export_multi_images(tmp_path):
     assert t["image"] == "https://img.x/a.jpg"
 
 
+def test_export_image_plan(tmp_path):
+    """撰写期图片审选的渲染契约：kept 即展示集（顺序=展示顺序，首张=头图）；
+    正文 IMG 令牌 → 内联 figure（图注进 figcaption），头图/未保留令牌移除；
+    kept=[] 是有效裁决 → 无图版式；旧文章（无 image_plan）回退条目图库。"""
+    from rebas import db as database
+    from rebas.config import load_config
+    from rebas.render.export import export_web
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute("INSERT INTO issues (issue_date, kind, status, updated_at)"
+                 " VALUES ('2026-01-01','daily','written','x')")
+    u1, u2 = "https://img.x/1.jpg", "https://img.x/2.jpg"
+
+    def seed(key, image_plan=None, body_md="正文"):
+        conn.execute(
+            "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+            " fetched_at, image_url) VALUES ('s','design',?,?,'条目','x',"
+            " 'https://img.x/fallback.jpg')",
+            (f"http://x.com/{key}", f"http://x.com/{key}"))
+        iid = conn.execute("SELECT max(id) FROM raw_items").fetchone()[0]
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, needs_image, created_at, reason) VALUES"
+            " ('2026-01-01','design',?,?,?,'feature',0,'x','r')",
+            (key, key, json.dumps([iid])))
+        tid = conn.execute("SELECT max(id) FROM topics").fetchone()[0]
+        conn.execute(
+            "INSERT INTO articles (topic_id, card_summary, body_md, image_refs,"
+            " image_plan, created_at) VALUES (?,'卡',?,'[]',?,'x')",
+            (tid, body_md, image_plan))
+
+    seed("reviewed",
+         image_plan=json.dumps({"kept": [[2, u2], [1, u1]]}),
+         body_md="开头段\n\n![展览现场](IMG1)\n\n![x](IMG2)\n\n![y](IMG3)\n\n结尾段")
+    seed("dropped-all", image_plan=json.dumps({"kept": []}))
+    seed("legacy")   # 无 image_plan → 回退条目图
+    conn.commit()
+
+    conf = dataclasses.replace(load_config(), site_dir=tmp_path / "site")
+    export_web(conn, conf, data_dir=tmp_path / "data")
+    issue = json.loads((tmp_path / "data" / "issues" / "2026-01-01.json").read_text())
+    board = next(b for b in issue["boards"] if b["id"] == "design")
+    topics = {t["key"]: t for t in
+              ([board["headline"]] if board["headline"] else []) + board["features"]}
+
+    r = topics["reviewed"]
+    assert r["image"] == u2 and r["images"] == [u2, u1]   # kept 顺序，首张=头图
+    assert f'<img src="{u1}"' in r["body_html"]            # IMG1 内联成 figure
+    assert "<figcaption>展览现场</figcaption>" in r["body_html"]
+    assert u2 not in r["body_html"]                        # 头图令牌移除（防双显）
+    assert "IMG3" not in r["body_html"]                    # 未保留令牌整行移除
+    assert r["images_inline"] == [u1]
+    assert "开头段" in r["body_html"] and "结尾段" in r["body_html"]
+
+    d = topics["dropped-all"]
+    assert d["image"] is None and "images" not in d        # 全弃 → 无图版式
+
+    lg = topics["legacy"]
+    assert lg["image"] == "https://img.x/fallback.jpg"     # 旧数据回退条目图
+
+
 def test_math_rendering():
     """公式管线：LaTeX→MathML（构建期、零 JS）。块级/行内/围栏都接，
     货币与代码块防误伤，解析失败降级代码样式，nh3 白名单放行 MathML。"""

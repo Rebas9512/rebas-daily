@@ -13,6 +13,8 @@ class LLMError(Exception):
 
 class LLMBackend(Protocol):
     def complete(self, prompt: str, *, role: str = "default") -> str: ...
+    # 可选扩展：支持图片附件的后端另接受 images=(本地文件路径, ...) 关键字参数
+    # （codex exec -i）。complete_json 只在有图时传递，纯文本后端无需实现。
 
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
@@ -46,11 +48,16 @@ def extract_json(text: str):
 
 
 def complete_json(backend: LLMBackend, prompt: str, *, role: str = "default",
-                  retries: int = 1):
-    """调用模型并解析 JSON；解析失败时把错误喂回去重试。"""
+                  retries: int = 1, images=()):
+    """调用模型并解析 JSON；解析失败时把错误喂回去重试。
+
+    images: 本地图片路径（撰写期图片审选）。仅在非空时传给后端，
+    纯文本后端与既有测试桩不受影响。
+    """
+    kwargs = {"images": tuple(images)} if images else {}
     last_err: LLMError | None = None
     for attempt in range(retries + 1):
-        text = backend.complete(prompt, role=role)
+        text = backend.complete(prompt, role=role, **kwargs)
         try:
             return extract_json(text)
         except LLMError as err:

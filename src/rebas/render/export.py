@@ -71,9 +71,11 @@ _MATHML_TAGS = {
 _ALLOWED_TAGS = {
     "p", "h2", "h3", "h4", "ul", "ol", "li", "blockquote", "a", "code", "pre",
     "strong", "em", "br", "hr", "table", "thead", "tbody", "tr", "th", "td",
+    "figure", "figcaption", "img",   # 撰写期审选的正文插图（_replace_body_images）
 } | _MATHML_TAGS
 _ALLOWED_ATTRS = {
     "a": {"href", "title"},
+    "img": {"src", "alt", "loading", "decoding", "referrerpolicy"},
     "math": {"display", "xmlns"},
     "mo": {"stretchy", "fence", "separator", "form", "accent", "movablelimits",
            "largeop", "lspace", "rspace", "minsize", "maxsize", "symmetric"},
@@ -249,6 +251,46 @@ def _topic_images(article, items: list, cap: int = _TOPIC_IMAGES_CAP) -> list[st
     return out
 
 
+# 撰写期插图令牌：`![图注](IMG3)` 独立成行（writer 按图片审选协议输出）
+_BODY_IMG_RE = re.compile(r"^[ \t]*!\[([^\]\n]*)\]\(\s*IMG(\d+)\s*\)[ \t]*$", re.M)
+
+
+def _replace_body_images(body_md: str, img_map: dict[int, str],
+                         hero: str | None) -> tuple[str, list[str]]:
+    """正文插图令牌 → 内联 <figure>（图注进 figcaption）。
+
+    未保留/未知编号的令牌整行移除；头图令牌也移除（版式已把它放文首，防双显）。
+    返回 (替换后文本, 内联用图 URL 列表)——后者供报道页头图区去重。"""
+    used: list[str] = []
+
+    def _sub(m: re.Match) -> str:
+        alt = m.group(1).strip()
+        url = img_map.get(int(m.group(2)))
+        if not url or url == hero:
+            return ""
+        if url not in used:
+            used.append(url)
+        cap = f"<figcaption>{html_lib.escape(alt)}</figcaption>" if alt else ""
+        return (f'\n<figure><img src="{html_lib.escape(url)}" alt="" loading="lazy"'
+                f' decoding="async" referrerpolicy="no-referrer">{cap}</figure>\n')
+
+    return _BODY_IMG_RE.sub(_sub, body_md or ""), used
+
+
+def _load_image_plan(article) -> tuple[list[str], dict[int, str]] | None:
+    """撰写期图片审选产物 → (展示图列表, 编号→URL 映射)。None = 未审选（回退旧逻辑）。
+    kept 为空列表也是有效裁决（全弃 → 无图版式）。"""
+    if article is None or not article["image_plan"]:
+        return None
+    try:
+        plan = json.loads(article["image_plan"])
+    except (TypeError, ValueError):
+        return None
+    kept = [(int(n), u) for n, u in plan.get("kept") or []
+            if isinstance(u, str) and u.startswith(("http://", "https://"))]
+    return [u for _, u in kept], dict(kept)
+
+
 def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
     """全量导出所有已出刊期次（幂等重建，数据量小无需增量）。"""
     data_dir = data_dir or WEB_DIR / "data"
@@ -305,8 +347,17 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                 # 保持 item_ids 顺序（主编排序，首条为主材料）
                 items.sort(key=lambda r: ids.index(r["id"]))
                 has_body = bool(a and (a["body_md"] or "").strip())
-                images = ([] if bm["id"] in _NO_IMAGE_BOARDS
-                          else _topic_images(a, items))
+                # 配图：撰写期审选结果（image_plan）优先——writer 实际看过图，
+                # kept 即展示集（顺序=展示顺序，首张=头图，空=降级无图版式）；
+                # 未审选的按旧逻辑从条目图库/单图取
+                plan = _load_image_plan(a)
+                img_map: dict[int, str] = {}
+                if bm["id"] in _NO_IMAGE_BOARDS:
+                    images = []
+                elif plan is not None:
+                    images, img_map = plan
+                else:
+                    images = _topic_images(a, items)
                 entry = {
                     "key": t["thread_key"],
                     "title": t["title"],
@@ -328,7 +379,12 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                 if bm["id"] in _MULTI_IMAGE_BOARDS and len(images) > 1:
                     entry["images"] = images
                 if has_body:
-                    entry["body_html"] = _md(a["body_md"])
+                    body_md, inline_used = _replace_body_images(
+                        a["body_md"], img_map, images[0] if images else None)
+                    entry["body_html"] = _md(body_md)
+                    if inline_used:
+                        # 正文已内联的图：报道页头图区据此去重，不双显
+                        entry["images_inline"] = inline_used
                     entry["read_minutes"] = _read_minutes(a["body_md"])
                     entry["sources"] = [{
                         "title": i["title"], "url": i["url"],
