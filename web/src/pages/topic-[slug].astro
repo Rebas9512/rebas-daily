@@ -45,6 +45,9 @@ const slotLabel =
       : "速览 BRIEF";
 const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
 const boardHref = issueHref(board.id, issue.date);
+// 多图报道页（艺术/设计）：hero 主图 + 其余入图库网格（最多共 6 张）
+const heroImages =
+  topic.images && topic.images.length > 1 ? topic.images.slice(0, 6) : null;
 ---
 
 <Layout
@@ -76,18 +79,46 @@ const boardHref = issueHref(board.id, issue.date);
     </header>
 
     {
-      topic.image && (
+      heroImages ? (
         <figure class="hero">
           <img
-            src={topic.image}
+            src={heroImages[0]}
             alt=""
             loading="lazy"
             decoding="async"
             referrerpolicy="no-referrer"
-            onerror="this.closest('figure').remove()"
+            onerror="this.remove()"
           />
-          <figcaption class="mono">IMAGE — {topic.source}</figcaption>
+          <div class="hero__grid">
+            {heroImages.slice(1).map((src) => (
+              <img
+                src={src}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                referrerpolicy="no-referrer"
+                onerror="this.remove()"
+              />
+            ))}
+          </div>
+          <figcaption class="mono">
+            IMAGES × {heroImages.length} — {topic.source}
+          </figcaption>
         </figure>
+      ) : (
+        topic.image && (
+          <figure class="hero">
+            <img
+              src={topic.image}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              referrerpolicy="no-referrer"
+              onerror="this.closest('figure').remove()"
+            />
+            <figcaption class="mono">IMAGE — {topic.source}</figcaption>
+          </figure>
+        )
       )
     }
 
@@ -218,6 +249,19 @@ const boardHref = issueHref(board.id, issue.date);
     border-radius: 4px;
     border: 1px solid var(--hairline);
     background: var(--soft);
+  }
+
+  /* 多图报道页：主图之下的图库网格（等宽分栏自适应，单元 4:3） */
+  .hero__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 8px;
+  }
+
+  .hero__grid img {
+    aspect-ratio: 4 / 3;
+    height: 100%;
+    max-height: none;
   }
 
   .art-body {

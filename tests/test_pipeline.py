@@ -320,18 +320,36 @@ def test_checker_background_review(tmp_path):
                          "2026-01-01") == {"checked": 0}
 
 
-def test_facts_eligibility():
-    """新闻调查补充资格：非论文选题 + 材料仅标题级；论文与厚材料不投。"""
+def test_facts_eligibility(tmp_path):
+    """调查补充资格：新闻按仅标题级；论文以原文缓存是否到手为准（2026-07-07）。"""
+    import dataclasses
+
     from rebas.agents.stages import _facts_eligible
+    from rebas.config import load_config
 
-    def row(kind="article", text=None, summary=None):
-        return {"kind": kind, "extracted_text": text, "summary": summary}
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
 
-    assert _facts_eligible([row(summary="仅标题级短摘要")])
-    assert _facts_eligible([row(kind="repo", summary="短描述")])        # repo 也按新闻口径
-    assert not _facts_eligible([row(kind="paper", summary="短")])       # 论文不放宽
-    assert not _facts_eligible([row(text="厚" * 600)])                   # 材料够厚不需要
-    assert not _facts_eligible([row(summary="短"), row(kind="paper")])  # 混论文的选题不投
+    def row(kind="article", text=None, summary=None, id=1,
+            url="https://doi.org/10.1/x"):
+        return {"id": id, "kind": kind, "extracted_text": text, "summary": summary,
+                "url": url, "url_canonical": url}
+
+    assert _facts_eligible(conf, [row(summary="仅标题级短摘要")])
+    assert _facts_eligible(conf, [row(kind="repo", summary="短描述")])   # repo 也按新闻口径
+    assert not _facts_eligible(conf, [row(text="厚" * 600)])              # 材料够厚不需要
+
+    # 论文：原文拿不到（无缓存）→ 放行调查；摘要级厚度（<2000）也算薄
+    assert _facts_eligible(conf, [row(kind="paper", summary="短")])
+    assert _facts_eligible(conf, [row(kind="paper", summary="摘" * 1500)])
+    # 材料超过论文门槛的不投
+    assert not _facts_eligible(conf, [row(kind="paper", text="厚" * 2500)])
+    # 原文缓存已到手（取材期精读成功）→ 不调查
+    conf.paper_cache_dir.mkdir(parents=True)
+    (conf.paper_cache_dir / "7.txt").write_text("论文原文", encoding="utf-8")
+    assert not _facts_eligible(conf, [row(kind="paper", summary="短", id=7)])
+    # 混合选题按论文口径：缓存归属条目（首个论文条目）有缓存 → 不调查
+    assert not _facts_eligible(
+        conf, [row(summary="短", id=3), row(kind="paper", summary="短", id=7)])
 
 
 def test_stage_research_facts(tmp_path):

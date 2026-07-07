@@ -93,6 +93,54 @@ def test_export_web(tmp_path):
     assert briefs["brief-legacy"]["url"] == "http://orig.example/a"  # → 外链兜底
 
 
+def test_export_multi_images(tmp_path):
+    """多图排版契约：艺术/设计板块图库 ≥2 → images 列表（含过滤去重）；
+    其余板块只出单图 image；学术板块维持不配图。"""
+    from rebas import db as database
+    from rebas.config import load_config
+    from rebas.render.export import export_web
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute("INSERT INTO issues (issue_date, kind, status, updated_at)"
+                 " VALUES ('2026-01-01','daily','written','x')")
+
+    def seed(board, key, image_urls=None, image_url=None):
+        conn.execute(
+            "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+            " fetched_at, image_url, image_urls) VALUES ('s',?,?,?,'条目','x',?,?)",
+            (board, f"http://x.com/{key}", f"http://x.com/{key}", image_url,
+             json.dumps(image_urls) if image_urls else None))
+        iid = conn.execute("SELECT max(id) FROM raw_items").fetchone()[0]
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, needs_image, created_at, reason) VALUES"
+            " ('2026-01-01',?,?,?,?,'brief',0,'x','r')",
+            (board, key, key, json.dumps([iid])))
+
+    gallery = ["https://img.x/1.jpg", "https://img.x/2.jpg",
+               "https://opengraph.githubassets.com/auto.png",  # 自动卡片过滤
+               "https://img.x/1.jpg"]                          # 重复去重
+    seed("design", "d-multi", image_urls=gallery, image_url="https://img.x/1.jpg")
+    seed("design", "d-single", image_url="https://img.x/only.jpg")
+    seed("tech", "t-multi", image_urls=["https://img.x/a.jpg", "https://img.x/b.jpg"])
+    conn.commit()
+
+    conf = dataclasses.replace(load_config(), site_dir=tmp_path / "site")
+    export_web(conn, conf, data_dir=tmp_path / "data")
+    issue = json.loads((tmp_path / "data" / "issues" / "2026-01-01.json").read_text())
+    boards = {b["id"]: b for b in issue["boards"]}
+
+    briefs = {t["key"]: t for t in boards["design"]["briefs"]}
+    assert briefs["d-multi"]["images"] == ["https://img.x/1.jpg", "https://img.x/2.jpg"]
+    assert briefs["d-multi"]["image"] == "https://img.x/1.jpg"
+    assert "images" not in briefs["d-single"]            # 单图不出列表
+    assert briefs["d-single"]["image"] == "https://img.x/only.jpg"
+
+    t = {x["key"]: x for x in boards["tech"]["briefs"]}["t-multi"]
+    assert "images" not in t                              # 非多图板块维持单图
+    assert t["image"] == "https://img.x/a.jpg"
+
+
 def test_math_rendering():
     """公式管线：LaTeX→MathML（构建期、零 JS）。块级/行内/围栏都接，
     货币与代码块防误伤，解析失败降级代码样式，nh3 白名单放行 MathML。"""

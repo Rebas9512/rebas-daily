@@ -16,7 +16,7 @@ from rebas.agents.prompts import (
     background_block, check_block, materials_block, profile_block,
     reader_block, render_prompt, signals_str,
 )
-from rebas.collect.base import first_image, make_client, strip_html, utcnow_iso
+from rebas.collect.base import all_images, first_image, make_client, strip_html, utcnow_iso
 from rebas.config import AppConfig, Profile, load_secrets, load_sources, pooled_source_groups
 from rebas.llm import LLMBackend, complete_json
 
@@ -24,6 +24,7 @@ _THREAD_KEY_RE = re.compile(r"[^a-z0-9-]+")
 FETCH_TEXT_CAP = 20_000
 THIN_MATERIAL_CHARS = 500     # 材料总量低于此 → 篇幅封顶
 THIN_LENGTH_CAP = 600
+PAPER_FACTS_THIN_CHARS = 2000  # 论文调查门槛：原文拿不到且材料不足摘要级厚度才联网补
 
 _OG_IMAGE_RE = re.compile(r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', re.I)
 
@@ -530,7 +531,8 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
     with make_client() as client:
         for iid in item_ids:
             r = conn.execute(
-                "SELECT id, url, summary, extracted_text, image_url FROM raw_items WHERE id=?",
+                "SELECT id, url, summary, extracted_text, image_url, image_urls"
+                " FROM raw_items WHERE id=?",
                 (iid,)).fetchone()
             if r["extracted_text"] or len(r["summary"] or "") >= THIN_MATERIAL_CHARS:
                 stats["skipped"] += 1
@@ -547,10 +549,18 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
                 if image and not image.startswith(("http://", "https://")):
                     # og:image/内文图可能是相对路径，按页面 URL 补全
                     image = urllib.parse.urljoin(r["url"], image)
+                # 正文图库（多图排版）：feed 级图库优先（已过滤），页面内文图补位
+                gallery = json.loads(r["image_urls"] or "[]")
+                for u in all_images(html, base_url=r["url"]):
+                    if u not in gallery:
+                        gallery.append(u)
+                gallery = gallery[:6]
                 if text:
                     conn.execute(
-                        "UPDATE raw_items SET extracted_text=?, image_url=? WHERE id=?",
-                        (text, image, iid))
+                        "UPDATE raw_items SET extracted_text=?, image_url=?,"
+                        " image_urls=? WHERE id=?",
+                        (text, image,
+                         json.dumps(gallery) if gallery else None, iid))
                     stats["fetched"] += 1
                 else:
                     stats["failed"] += 1
@@ -721,15 +731,21 @@ ARCHIVE_BODY_CHARS = 3000
 FACTS_MARK = "【需调查补充】"   # 薄材料新闻选题在背调清单里的标注
 
 
-def _facts_eligible(rows) -> bool:
-    """新闻调查补充（2026-07-06）的资格：非论文选题、且供稿材料仅标题级。
+def _facts_eligible(conf: AppConfig, rows) -> bool:
+    """调查补充的资格（2026-07-06 新闻/repo；2026-07-07 扩展到拿不到原文的论文）。
 
-    论文选题不放宽（严谨性走精读/核查线）；新闻/repo/博客等其余类型都按
-    新闻口径调查（repo 补 README/发布说明/社区讨论）；材料够厚的不需要。
+    - 非论文选题：供稿材料仅标题级时按新闻口径调查（repo 补 README/发布说明/社区讨论）；
+    - 论文选题：原文精读**实在拿不到**时才放行——以取材期缓存文件为准（无 arXiv id、
+      同题预印本兜底落空、抓取失败三种情况都表现为缓存缺失），此时联网检索期刊新闻稿/
+      出版方页面/可靠媒体报道补信息量（付费墙顶刊常只有 ~50 字纯标题）。原文到手的
+      论文材料已厚，维持不调查（严谨性走精读/核查线）。门槛比新闻宽（摘要级也算薄）。
     """
-    if any(r["kind"] == "paper" for r in rows):
-        return False
     total = sum(len(r["extracted_text"] or r["summary"] or "") for r in rows)
+    if any(r["kind"] == "paper" for r in rows):
+        owner = _paper_cache_item(rows)
+        if owner is not None and (conf.paper_cache_dir / f"{owner['id']}.txt").exists():
+            return False
+        return total < PAPER_FACTS_THIN_CHARS
     return total < THIN_MATERIAL_CHARS
 
 
@@ -787,9 +803,10 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
     - 全板块一次批量调用（screen 同款），agent 对不需要背景的选题自甄别返回空列表；
     - 往期查阅两轮协议：第一轮给 30 天标题索引，agent 需要读全文时返回
       need_articles，第二轮附全文再产出最终背景（连续报道的 follow-up 不凭标题猜）；
-    - 新闻调查补充（2026-07-06）：非论文选题材料仅标题级时标注【需调查补充】，
-      agent 联网检索该事件补充事实细节（facts，带来源），经背景审核后进撰写——
-      新闻的严谨门槛放宽，论文选题不适用；research_facts_max=0 整体关闭；
+    - 调查补充（2026-07-06 新闻/repo，2026-07-07 扩展论文）：材料薄的选题标注
+      【需调查补充】，agent 联网检索补充事实细节（facts，带来源），经背景审核后
+      进撰写。新闻按事件口径；论文仅在原文精读实在拿不到时放行（见 _facts_eligible），
+      检索期刊新闻稿/出版方页面/媒体报道；research_facts_max=0 整体关闭；
     - 幂等：background 非 NULL 或已有报道的选题跳过；空产物也落库标记已处理。
     """
     if not profile.reader_assumed and not profile.reader_explain:
@@ -805,7 +822,7 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
     blocks = []
     for t in topics:
         rows = _topic_items(conn, t)
-        if conf.research_facts_max > 0 and _facts_eligible(rows):
+        if conf.research_facts_max > 0 and _facts_eligible(conf, rows):
             investigate.add(t["id"])
         excerpts = "\n".join(
             f"  - {r['title']}：{(r['extracted_text'] or r['summary'] or '（仅标题）')[:RESEARCH_EXCERPT_CHARS]}"

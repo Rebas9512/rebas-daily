@@ -12,7 +12,7 @@ import urllib.request
 import zlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from rebas.config import Profile
 
@@ -67,6 +67,40 @@ def strip_html(text: str, limit: int | None = None) -> str:
 def first_image(html: str) -> str | None:
     m = _IMG_RE.search(html or "")
     return m.group(1) if m else None
+
+
+# 图库提取的噪声过滤：跟踪像素/头像/表情/矢量图标（内容摄影不会是 svg）
+_IMG_JUNK_RE = re.compile(
+    r"^data:|\.svg(?:\?|$)|gravatar\.com|doubleclick\.|feedburner"
+    r"|/emoji|/smilies?/|/avatars?/|pixel\.(?:gif|png)|spacer\.|blank\.gif",
+    re.I)
+# WordPress 缩略图尺寸后缀（photo-768x512.jpg）：归一后去重，同图多尺寸只留首个
+_WP_SIZE_RE = re.compile(r"-\d{2,4}x\d{2,4}(?=\.\w{3,4}$)")
+
+
+def all_images(html: str, base_url: str = "", cap: int = 6) -> list[str]:
+    """正文 HTML 里的配图列表（艺术/设计多图排版用，2026-07-07）：按出现顺序取
+    <img src>，剥噪声、相对路径按 base_url 补全（无基准丢弃）、同图多尺寸归一去重。"""
+    out: list[str] = []
+    seen: set[str] = set()
+    for url in _IMG_RE.findall(html or ""):
+        url = html_mod.unescape(url.strip())
+        if not url or _IMG_JUNK_RE.search(url):
+            continue
+        if not url.startswith(("http://", "https://")):
+            if not base_url:
+                continue
+            url = urljoin(base_url, url)
+            if not url.startswith(("http://", "https://")):
+                continue
+        key = _WP_SIZE_RE.sub("", url.split("?", 1)[0])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(url)
+        if len(out) >= cap:
+            break
+    return out
 
 
 class KeywordMatcher:

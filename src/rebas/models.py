@@ -20,6 +20,7 @@ class RawItem:
     content_hash: str | None = None
     signals: dict = field(default_factory=dict)
     image_url: str | None = None
+    image_urls: list[str] = field(default_factory=list)   # 正文图库（多图排版用）
     id: int | None = None
     status: str = "new"
 

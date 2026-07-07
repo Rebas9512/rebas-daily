@@ -11,7 +11,8 @@ import feedparser
 
 from rebas import db
 from rebas.collect.base import (
-    HttpClient, canonicalize_url, content_hash, first_image, parse_date, strip_html,
+    HttpClient, all_images, canonicalize_url, content_hash, first_image, parse_date,
+    strip_html,
 )
 from rebas.config import Source
 from rebas.models import RawItem
@@ -123,6 +124,14 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
         if source.content == "fulltext" and content_html:
             fulltext = strip_html(content_html)
 
+        # 正文图库（多图排版）：媒体字段主图作种子拼进正文一起提取，
+        # 统一走噪声过滤与同图多尺寸去重（缩略图与原图不重复计）
+        image_url = _entry_image(entry, base_url=link)
+        gallery_html = content_html or entry.get("summary", "") or ""
+        if image_url:
+            gallery_html = f'<img src="{image_url}"/>' + gallery_html
+        image_urls = all_images(gallery_html, base_url=link)
+
         items.append(RawItem(
             source_id=source.id,
             board=source.board,
@@ -137,7 +146,8 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
             summary=summary,
             extracted_text=fulltext,
             content_hash=content_hash(title),
-            image_url=_entry_image(entry, base_url=link),
+            image_url=image_url,
+            image_urls=image_urls,
         ))
     return items, skipped
 
@@ -155,6 +165,7 @@ def parse_nitter_rss(source: Source, data: bytes, *, conn=None, client=None,
         it.url = _NITTER_HOST_RE.sub("https://x.com", it.url).removesuffix("#m")
         it.url_canonical = canonicalize_url(it.url)
         it.image_url = None
+        it.image_urls = []
     return items, extra
 
 

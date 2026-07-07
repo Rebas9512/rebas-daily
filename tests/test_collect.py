@@ -113,6 +113,20 @@ class TestInsertSemantics:
         # 完全重复 → dup
         assert database.insert_item(conn, self._item()) == "dup"
 
+    def test_merge_image_urls(self, tmp_path):
+        conn = database.init_db(tmp_path / "t.sqlite")
+        database.insert_item(conn, self._item())
+        # 升级前入库的旧条目：feed 再采带图库 → 回填
+        out = database.insert_item(
+            conn, self._item(image_urls=["https://x.com/1.jpg", "https://x.com/2.jpg"]))
+        assert out == "merged"
+        row = conn.execute("SELECT image_urls FROM raw_items").fetchone()
+        assert json.loads(row["image_urls"]) == ["https://x.com/1.jpg",
+                                                 "https://x.com/2.jpg"]
+        # 已有图库不覆盖
+        assert database.insert_item(
+            conn, self._item(image_urls=["https://x.com/other.jpg"])) == "dup"
+
     def test_revive_window(self, tmp_path):
         conn = database.init_db(tmp_path / "t.sqlite")
         database.insert_item(conn, self._item())
@@ -125,6 +139,51 @@ class TestInsertSemantics:
         # 未过窗口的处理过条目 → 保持 dup
         conn.execute("UPDATE raw_items SET status='dropped'")
         assert database.insert_item(conn, self._item(), revive_days=14) == "dup"
+
+
+def test_all_images():
+    """图库提取：顺序保留、噪声过滤、相对路径补全、WP 多尺寸归一去重、封顶。"""
+    from rebas.collect.base import all_images
+
+    html = (
+        '<img src="https://cdn.x.com/a.jpg">'
+        '<img src="https://cdn.x.com/a-150x150.jpg">'      # 同图缩略尺寸 → 去重
+        '<img src="/uploads/b.png">'                        # 相对路径按 base 补全
+        '<img src="https://x.com/logo.svg">'                # 矢量图标 → 过滤
+        '<img src="data:image/gif;base64,xx">'              # data URI → 过滤
+        '<img src="https://secure.gravatar.com/avatar/x.jpg">'  # 头像 → 过滤
+        '<img src="https://cdn.x.com/c.jpg?w=1200">'
+    )
+    imgs = all_images(html, base_url="https://x.com/post")
+    assert imgs == ["https://cdn.x.com/a.jpg", "https://x.com/uploads/b.png",
+                    "https://cdn.x.com/c.jpg?w=1200"]
+    # 无基准的相对路径丢弃；cap 生效
+    assert all_images('<img src="/rel.jpg">') == []
+    many = "".join(f'<img src="https://x.com/{i}.jpg">' for i in range(9))
+    assert len(all_images(many)) == 6
+
+
+def test_feed_gallery():
+    """feed 解析的正文图库：媒体主图作种子 + 正文多图，统一去重进 image_urls。"""
+    from rebas.collect.feeds import parse_feed
+
+    rss = b"""<?xml version="1.0"?><rss version="2.0"
+        xmlns:media="http://search.yahoo.com/mrss/"
+        xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel>
+        <item><title>Gallery Post</title><link>https://x.com/post</link>
+        <media:thumbnail url="https://cdn.x.com/lead-300x200.jpg"/>
+        <content:encoded><![CDATA[
+          <img src="https://cdn.x.com/lead.jpg">
+          <img src="https://cdn.x.com/two.jpg">
+          <img src="https://cdn.x.com/three.jpg">
+        ]]></content:encoded>
+        </item></channel></rss>"""
+    items, _ = parse_feed(make_source(board="design"), rss, conn=None, client=None)
+    it = items[0]
+    assert it.image_url == "https://cdn.x.com/lead-300x200.jpg"   # 单图口径不变
+    # 图库：主图种子在前，与正文里的原尺寸版归一去重
+    assert it.image_urls == ["https://cdn.x.com/lead-300x200.jpg",
+                             "https://cdn.x.com/two.jpg", "https://cdn.x.com/three.jpg"]
 
 
 def test_feed_kind_override():

@@ -23,7 +23,11 @@ const sections = issue.boards
   const side = (b.headline ? b.features : b.features.slice(1)).slice(0, 3);
   const leadHref = lead ? (lead.page ?? lead.url) : null;
   const leadExternal = !!lead && !lead.page && !!lead.url;
-  return { ...b, lead, side, leadHref, leadExternal, no: String(i + 1).padStart(2, "0") };
+  // 多图头条（艺术/设计）：主图 + 底部图条（最多再 3 张）；单图维持原版式
+  const leadImages =
+    lead?.images && lead.images.length > 1 ? lead.images.slice(0, 4) : null;
+  return { ...b, lead, side, leadHref, leadExternal, leadImages,
+    no: String(i + 1).padStart(2, "0") };
 });
 ---
 
@@ -73,7 +77,34 @@ const sections = issue.boards
         <div class="sec__body">
           {b.lead ? (
             <article class="lead">
-              {b.lead.image && (
+              {b.leadImages ? (
+                <div class="lead__gallery">
+                  <figure class="lead__fig">
+                    <img
+                      src={b.leadImages[0]}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      referrerpolicy="no-referrer"
+                      onerror="this.closest('figure').remove()"
+                    />
+                  </figure>
+                  <div class="lead__strip">
+                    {b.leadImages.slice(1).map((src) => (
+                      <figure class="lead__cell">
+                        <img
+                          src={src}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          referrerpolicy="no-referrer"
+                          onerror="this.closest('figure').remove()"
+                        />
+                      </figure>
+                    ))}
+                  </div>
+                </div>
+              ) : b.lead.image && (
                 <figure class="lead__fig">
                   <img
                     src={b.lead.image}
@@ -235,6 +266,34 @@ const sections = issue.boards
   }
 
   .lead__fig img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* 多图头条：主图之下一条小图带（等宽分栏，数量自适应） */
+  .lead__gallery {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .lead__strip {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 6px;
+  }
+
+  .lead__cell {
+    margin: 0;
+    aspect-ratio: 3 / 2;
+    overflow: hidden;
+    border-radius: 4px;
+    border: 1px solid var(--hairline);
+    background: var(--soft);
+  }
+
+  .lead__cell img {
     width: 100%;
     height: 100%;
     object-fit: cover;

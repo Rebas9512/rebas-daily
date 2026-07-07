@@ -28,6 +28,8 @@ export interface Topic {
   source: string;
   /** 配图 URL；null = 无图，渲染纯文字版式 */
   image: string | null;
+  /** 多图排版（艺术/设计板块）：上游图库 ≥2 张时给出（含 image），否则缺省 */
+  images?: string[];
   body_html?: string;
   read_minutes?: number;
   sources?: SourceRef[];

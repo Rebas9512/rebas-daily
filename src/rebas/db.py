@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS raw_items (
     content_hash  TEXT,
     signals       TEXT,                              -- JSON：upvotes/points/stars_today 等
     image_url     TEXT,
+    image_urls    TEXT,                              -- JSON string[]：正文图库（艺术/设计多图排版用）
     status        TEXT NOT NULL DEFAULT 'new'        -- new | prefiltered_out | screened | selected | discarded
 );
 CREATE INDEX IF NOT EXISTS idx_raw_items_board_fetched ON raw_items(board, fetched_at);
@@ -126,6 +127,8 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "topics", "background", "TEXT")  # 背景调查产物（JSON，writer 铺垫用，不上前端）
     # 2026-07-04 审查加固
     _ensure_column(conn, "raw_items", "last_seen_at", "TEXT")  # 榜单 revive 的"出榜断档"口径
+    # 2026-07-07 多图排版
+    _ensure_column(conn, "raw_items", "image_urls", "TEXT")  # JSON string[] 正文图库
     conn.execute(  # 并发 publish 兜底：同期同板块同事件线只允许一条
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_issue_thread"
         " ON topics(issue_date, board, thread_key)")
@@ -150,18 +153,20 @@ def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) ->
         conn.execute(
             "INSERT INTO raw_items (source_id, board, kind, url, url_canonical, title,"
             " author, published_at, fetched_at, summary, extracted_text, content_hash,"
-            " signals, image_url, status)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new')",
+            " signals, image_url, image_urls, status)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new')",
             (it.source_id, it.board, it.kind, it.url, it.url_canonical, it.title,
              it.author, it.published_at, now.isoformat(timespec="seconds"),
              it.summary, it.extracted_text, it.content_hash,
              json.dumps(it.signals, ensure_ascii=False) if it.signals else None,
-             it.image_url),
+             it.image_url,
+             json.dumps(it.image_urls) if it.image_urls else None),
         )
         return "new"
     except sqlite3.IntegrityError:
         row = conn.execute(
-            "SELECT id, fetched_at, last_seen_at, status, summary, image_url, signals"
+            "SELECT id, fetched_at, last_seen_at, status, summary, image_url,"
+            " image_urls, signals"
             " FROM raw_items WHERE url_canonical = ?", (it.url_canonical,)
         ).fetchone()
         if row is None:  # 竞态兜底
@@ -183,6 +188,11 @@ def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) ->
         if it.image_url and not row["image_url"]:
             updates.append("image_url = ?")
             params.append(it.image_url)
+            merged = True
+        if it.image_urls and not row["image_urls"]:
+            # 图库回填：既有条目（升级前入库/其它源先采到）从 feed 正文补多图
+            updates.append("image_urls = ?")
+            params.append(json.dumps(it.image_urls))
             merged = True
         revived = False
         if revive_days is not None and row["status"] != "new":

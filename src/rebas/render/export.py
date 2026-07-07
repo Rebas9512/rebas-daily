@@ -54,6 +54,10 @@ _GENERIC_IMAGE_HOSTS = (
 )
 # 纯论文板块不配图（论文没有编辑意义上的配图；次要信源插图也不该顶到头条）
 _NO_IMAGE_BOARDS = {"academic"}
+# 多图排版板块（2026-07-07）：视觉主导内容，上游图库 ≥2 张时导出 images 列表，
+# 前端做多图版式；其余板块维持单图。图库来自采集/取材期的 raw_items.image_urls
+_MULTI_IMAGE_BOARDS = {"art", "design"}
+_TOPIC_IMAGES_CAP = 6
 
 
 # markdown "extra" 会放行原始 HTML，而前端用 set:html 渲染正文——
@@ -212,16 +216,25 @@ def _read_minutes(body_md: str) -> int:
     return max(1, round(len(body_md or "") / 400))
 
 
-def _topic_image(article, items: list) -> str | None:
-    """配图：优先取材阶段的 og:image（image_refs），回退条目采集图；
-    过滤自动生成的社交卡片。无图返回 None → 前端渲染无图版式。
+def _topic_images(article, items: list, cap: int = _TOPIC_IMAGES_CAP) -> list[str]:
+    """选题配图列表（首元素即单图版式用图）：按主编条目排序，每条先图库
+    （image_urls，采集/取材期提取的正文多图）后单图，末尾回退 image_refs
+    （writer 落库快照，兼容升级前旧数据）；过滤自动生成的社交卡片、去重。
 
     相对路径防御：上游历史数据可能存了相对 URL（Polars 博客实际踩坑），
     条目图按条目链接补全，image_refs 无基准则丢弃。"""
     candidates: list[tuple[str, str | None]] = []
+    for i in items:
+        try:
+            gallery = json.loads(i["image_urls"] or "[]")
+        except (TypeError, ValueError):
+            gallery = []
+        candidates += [(u, i["url"]) for u in gallery]
+        if i["image_url"]:
+            candidates.append((i["image_url"], i["url"]))
     if article is not None:
         candidates += [(u, None) for u in json.loads(article["image_refs"] or "[]")]
-    candidates += [(i["image_url"], i["url"]) for i in items if i["image_url"]]
+    out: list[str] = []
     for url, base in candidates:
         if not url or any(h in url for h in _GENERIC_IMAGE_HOSTS):
             continue
@@ -229,9 +242,11 @@ def _topic_image(article, items: list) -> str | None:
             if not base:
                 continue
             url = urllib.parse.urljoin(base, url)
-        if url.startswith(("http://", "https://")):
-            return url
-    return None
+        if url.startswith(("http://", "https://")) and url not in out:
+            out.append(url)
+        if len(out) >= cap:
+            break
+    return out
 
 
 def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
@@ -290,6 +305,8 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                 # 保持 item_ids 顺序（主编排序，首条为主材料）
                 items.sort(key=lambda r: ids.index(r["id"]))
                 has_body = bool(a and (a["body_md"] or "").strip())
+                images = ([] if bm["id"] in _NO_IMAGE_BOARDS
+                          else _topic_images(a, items))
                 entry = {
                     "key": t["thread_key"],
                     "title": t["title"],
@@ -305,9 +322,11 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                     "url": items[0]["url"] if items else None,
                     "source": source_names.get(items[0]["source_id"],
                                                items[0]["source_id"]) if items else "",
-                    "image": None if bm["id"] in _NO_IMAGE_BOARDS
-                             else _topic_image(a, items),
+                    "image": images[0] if images else None,
                 }
+                # 多图排版板块：图库 ≥2 张时给 images，前端切多图版式
+                if bm["id"] in _MULTI_IMAGE_BOARDS and len(images) > 1:
+                    entry["images"] = images
                 if has_body:
                     entry["body_html"] = _md(a["body_md"])
                     entry["read_minutes"] = _read_minutes(a["body_md"])

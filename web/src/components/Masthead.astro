@@ -142,8 +142,66 @@ const dateSummary = currentEntry
         </a>
       </div>
     </details>
+
+    {/* 分享本页：移动端走系统分享面板（微信/短信等），不支持时复制链接 */}
+    <button class="sharebtn" type="button" aria-label="分享本页" title="分享本页">
+      <svg
+        class="sharebtn__icon"
+        width="15"
+        height="15"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 3v13" />
+        <path d="M7 8l5-5 5 5" />
+        <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+      </svg>
+      <span class="mono sharebtn__label">分享</span>
+    </button>
   </div>
 </nav>
+
+<script is:inline>
+  // 分享键（渐进增强，页面渲染不依赖 JS）：Web Share API 优先（移动端拉起系统
+  // 分享面板，微信/短信等在列）；不支持的环境复制链接并就地提示
+  (function () {
+    var btn = document.querySelector(".sharebtn");
+    if (!btn) return;
+    var label = btn.querySelector(".sharebtn__label");
+    var idle = label ? label.textContent : "";
+    var timer = null;
+    function flash(msg) {
+      if (!label) return;
+      label.textContent = msg;
+      btn.classList.add("sharebtn--flash");
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(function () {
+        label.textContent = idle;
+        btn.classList.remove("sharebtn--flash");
+      }, 1600);
+    }
+    btn.addEventListener("click", function () {
+      var data = { title: document.title, url: location.href };
+      if (navigator.share) {
+        navigator.share(data).catch(function () {});  // 用户取消不提示
+        return;
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(location.href).then(
+          function () { flash("已复制"); },
+          function () { flash("复制失败"); },
+        );
+      } else {
+        window.prompt("复制本页链接：", location.href);
+      }
+    });
+  })();
+</script>
 
 <style>
   .mastnav {
@@ -360,6 +418,38 @@ const dateSummary = currentEntry
     color: var(--muted);
   }
 
+  /* ---- 分享键（移动端功能：≤960 吸顶条内出现；桌面 tab 行宽度余量紧不放） ---- */
+  .sharebtn {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 0;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--secondary);
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
+    flex: none;
+  }
+
+  .sharebtn:hover {
+    color: var(--ink);
+  }
+
+  .sharebtn__icon {
+    display: block;
+  }
+
+  .sharebtn__label {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
+
+  .sharebtn--flash {
+    color: var(--accent);
+  }
+
   /* 点外部自动收起（零 JS）：同 tabdrop 的全屏点击层方案，全宽度生效 */
   .datedrop[open] .datedrop__summary::before {
     content: "";
@@ -488,6 +578,10 @@ const dateSummary = currentEntry
 
     .datedrop__summary {
       padding: 12px 0;
+    }
+
+    .sharebtn {
+      display: inline-flex;
     }
 
     /* 点外部自动收起（保持零 JS）：展开时 summary 生成一个全屏透明点击层，
