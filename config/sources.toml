@@ -439,6 +439,30 @@ fetch_interval_hours = 8
 pace_seconds = 120
 enabled = true
 
+[[source]]
+id = "x-cliffasness"
+board = "quant"
+name = "X · Cliff Asness (AQR)"
+type = "nitter_rss"
+endpoint = "https://nitter.net/CliffordAsness/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true              # 2026-07-08 quant 扩源：AQR 创始人，因子投资第一意见领袖；
+                            # AQR 官网无 RSS（/rss /Insights/feed 均 HTML），X 是其研究观点主出口
+
+[[source]]
+id = "x-bennpeifert"
+board = "quant"
+name = "X · Benn Eifert (QVR)"
+type = "nitter_rss"
+endpoint = "https://nitter.net/bennpeifert/rss"
+content = "headline"
+fetch_interval_hours = 8
+pace_seconds = 120
+enabled = true              # 2026-07-08 quant 扩源：QVR 创始人，波动率/衍生品从业者视角，
+                            # 补画像"衍生品"维度（现有源几乎不产该类候选）
+
 # 川普主阵地是 Truth Social 非 X（X 号只偶发转帖，不接防双报）。
 # trumpstruth.org 是第三方归档站（实测更新到当天、100 条池、有 feed）；
 # 帖子标题是占位符，truth_rss 解析器把标题换成正文头部
@@ -983,7 +1007,10 @@ enabled = false            # ~8 条/天但评测/优惠/教程噪音大，按需
 # spotify.design(SSL 证书错误)、It's Nice That 官方 feed(404，继续走 GNews)。
 
 # ============================================================
-# 量化板块（2026-07-04 两轮 29 端点实测；论文走 48h 沉淀，新闻/博客最新）
+# 量化板块（2026-07-04 两轮 29 端点实测；论文走 48h 沉淀，新闻/博客最新。
+# 2026-07-08 扩源 +12/11 启用：市场结构新闻×3 + Quantitativo + 顶刊
+# OpenAlex×6(1备) + X 账号×2（见 nitter 段），对策=选题过度集中
+# hedgeweek/深度只靠 arXiv）
 # ============================================================
 
 [[source]]
@@ -1095,19 +1122,69 @@ type = "gnews_rss"
 endpoint = "https://news.google.com/rss/search?q=%22quantitative%20trading%22%20OR%20%22quant%20fund%22%20OR%20%22systematic%20trading%22&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 6
-enabled = true              # 兜底流：基金/人事/监管新闻
+enabled = true              # 兜底流：基金/人事/监管新闻。注：近 14 天 127 条零入选，
+                            # 主要被同题优质源压过；留作兜底观察，长期零入选可关
+
+# ---- 市场结构/交易产业新闻（2026-07-08 扩源：选题过度集中 hedgeweek 的对策，
+# 近 14 天入选构成 hedgeweek 12 + risknet 10 vs 其余合计 <8。三源实测日更、
+# 内容错位：MarketsMedia=交易所/成交量、Traders Magazine=专题访谈、
+# Global Trading=买卖方人事与监管。均 WP feed 带摘要 ----
+
+[[source]]
+id = "marketsmedia"
+board = "quant"
+name = "Markets Media"
+type = "rss"
+endpoint = "https://www.marketsmedia.com/feed/"
+content = "abstract"
+fetch_interval_hours = 6
+enabled = true              # 市场结构/交易技术产业新闻，~3 条/天
+
+[[source]]
+id = "tradersmagazine"
+board = "quant"
+name = "Traders Magazine"
+type = "rss"
+endpoint = "https://www.tradersmagazine.com/feed/"
+content = "abstract"
+fetch_interval_hours = 6
+enabled = true              # 交易台/电子化交易专题与访谈，~2-3 条/天；
+                            # 与 MarketsMedia 同集团但条目实测不重复；crypto 条目靠画像降权
+
+[[source]]
+id = "globaltrading"
+board = "quant"
+name = "Global Trading"
+type = "rss"
+endpoint = "https://www.globaltrading.net/feed/"
+content = "abstract"
+fetch_interval_hours = 6
+enabled = true              # 买卖方交易部门人事/监管动态（ESMA 等），~2 条/天
+
+[[source]]
+id = "quantitativo"
+board = "quant"
+name = "Quantitativo"
+type = "rss"
+endpoint = "https://www.quantitativo.com/feed"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # 2026-07-08 扩源：周更级深度策略研究博客（带回测的完整
+                            # write-up），feed 全文 ~1.7MB/3 条；Quantocracy 虽会聚合到
+                            # 但仅 headline 级，直连拿全文材料，url_canonical 自动合并
 
 # ---- 备选（实测活着但低频/边缘，需要再开）----
 
 [[source]]
 id = "tandf-quant-finance"
 board = "quant"
-name = "Quantitative Finance 期刊"
+name = "Quantitative Finance 期刊 (T&F RSS)"
 type = "rss"
 endpoint = "https://www.tandfonline.com/feed/rss/rquf20"
 content = "headline"
 fetch_interval_hours = 48
-enabled = false             # 按期更新（数月节奏），arXiv 已覆盖预印本
+enabled = false             # 按期更新（数月节奏）→ 2026-07-08 由 oa-quantfin
+                            # （OpenAlex 收录时间口径）接替，此条仅存档
 
 [[source]]
 id = "quantstart"
@@ -1477,10 +1554,10 @@ id = "dieline"
 board = "design"
 name = "The Dieline"
 type = "rss"
-endpoint = "https://thedieline.com/feed"
+endpoint = "https://thedieline.com/feed/"
 content = "headline"
 fetch_interval_hours = 12
-enabled = true              # 包装设计主力(美/国际)，~2 条/天；feed 仅标题，lazy fetch
+enabled = true              # 包装设计主力(美/国际)，~2 条/天；feed 仅标题，lazy fetch；无尾斜杠会 301 双请求，易触发限流 429
 
 [[source]]
 id = "designwanted"
@@ -1650,6 +1727,90 @@ enabled = true              # 金融顶刊。2026-07-07 Wiley RSS 开始拦 Hetz
                             # created_date 时效口径，附赠摘要+被引信号，反而比 headline 厚）。
                             # 复活条件：换非数据中心出口可切回
                             # https://onlinelibrary.wiley.com/feed/15406261/most-recent
+
+# ---- quant 顶刊扩容（2026-07-08：feature 选题此前只有 arXiv 一条腿，
+# 复用 jof-wiley 的 OpenAlex 目录通道横向铺开。学术三大刊 RFS/JFE +
+# 最对口的 QF/MathFin + 从业者刊 JPM；JFQA 备选。官网 RSS 均付费墙/无 feed，
+# OpenAlex 免爬免拦、送摘要+被引 ----
+
+[[source]]
+id = "oa-rfs"
+board = "quant"
+name = "Review of Financial Studies"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S170137484&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
+enabled = true              # 金融三大刊之二（OUP）：实证资产定价主阵地
+
+[[source]]
+id = "oa-jfe"
+board = "quant"
+name = "Journal of Financial Economics"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S149240962&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
+enabled = true              # 金融三大刊之三（Elsevier）：公司金融占比高，靠画像滤
+
+[[source]]
+id = "oa-quantfin"
+board = "quant"
+name = "Quantitative Finance 期刊"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S182689569&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
+enabled = true              # 全刊对口画像（微观结构/组合/衍生品）。T&F RSS 按期更新
+                            # 曾禁（tandf-quant-finance）→ OpenAlex 收录时间口径复活
+
+[[source]]
+id = "oa-mathfin"
+board = "quant"
+name = "Mathematical Finance"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S133335107&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
+enabled = true              # 衍生品/随机分析顶刊（Wiley），~70 篇/年低量高信号
+
+[[source]]
+id = "oa-jpm"
+board = "quant"
+name = "Journal of Portfolio Management"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S143806524&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
+enabled = true              # 从业者刊（因子/组合构建），学术刊与实务的桥，全刊对口画像
+
+[[source]]
+id = "oa-jfqa"
+board = "quant"
+name = "Journal of Financial and Quantitative Analysis"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S193228710&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
+kind = "paper"
+paywall = true
+fetch_interval_hours = 24
+pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
+enabled = false             # 备选：二线综合刊，先看五刊供给量再决定是否加开
 
 [[source]]
 id = "pnas"
