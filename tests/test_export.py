@@ -141,6 +141,34 @@ def test_export_multi_images(tmp_path):
     assert t["image"] == "https://img.x/a.jpg"
 
 
+def test_export_classic_column(tmp_path):
+    """栏目标识：thread_key 前缀 classic- → 前端拿到 column 标签。"""
+    from rebas import db as database
+    from rebas.config import load_config
+    from rebas.render.export import export_web
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute("INSERT INTO issues (issue_date, kind, status, updated_at)"
+                 " VALUES ('2026-01-01','daily','written','x')")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+        " fetched_at) VALUES ('classic-art','art','http://w/x','http://w/x','画','x')")
+    iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " slot, needs_image, created_at, reason) VALUES"
+        " ('2026-01-01','art','鉴赏题','classic-x',?,'feature','regular',1,'x','r')",
+        (json.dumps([iid]),))
+    conn.commit()
+    conf = dataclasses.replace(load_config(), site_dir=tmp_path / "site")
+    export_web(conn, conf, data_dir=tmp_path / "data")
+    issue = json.loads((tmp_path / "data" / "issues" / "2026-01-01.json").read_text())
+    art = next(b for b in issue["boards"] if b["id"] == "art")
+    feat = art["features"][0]
+    assert feat["column"] == "经典鉴赏 CLASSIC"
+    assert feat["source"] == "经典鉴赏 · Wikipedia"       # 虚拟源的来源名映射
+
+
 def test_export_image_plan(tmp_path):
     """撰写期图片审选的渲染契约：kept 即展示集（顺序=展示顺序，首张=头图）；
     正文 IMG 令牌 → 内联 figure（图注进 figcaption），头图/未保留令牌移除；

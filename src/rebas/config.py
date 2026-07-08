@@ -97,6 +97,7 @@ class AppConfig:
     refill_min_topics: int
     research_facts_max: int
     image_review_boards: tuple[str, ...]
+    classic_board: str
 
     @property
     def db_path(self) -> Path:
@@ -144,6 +145,7 @@ def load_config() -> AppConfig:
         research_facts_max=int(publish.get("research_facts_max", 0)),
         image_review_boards=tuple(publish.get("image_review_boards",
                                               ["art", "design"])),
+        classic_board=str(publish.get("classic_board", "")),
     )
 
 

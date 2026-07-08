@@ -1702,3 +1702,17 @@ fetch_interval_hours = 24
 pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
 enabled = true              # ML 顶刊；官方 RSS 日期仅年份精度 + OpenAlex 收录停在 2021 →
                             # 解析官网卷页（新条目在末尾）。**每年 1 月卷号 +1（v = 年份-1999）**
+
+# ---- 栏目虚拟源（不参与采集）----
+
+[[source]]
+id = "classic-art"
+board = "art"
+name = "经典鉴赏 · Wikipedia"
+type = "rss"
+endpoint = "-"
+content = "abstract"
+fetch_interval_hours = 8760
+enabled = false             # 《经典鉴赏》栏目专用虚拟源：条目由主编提名时代码合成
+                            # （url 指向作品的 Wikipedia 条目，取材抓正文当材料），
+                            # 不走采集调度；此条只为前端来源名与 content 深度映射存在

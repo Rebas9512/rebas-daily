@@ -16,9 +16,13 @@ from rebas.agents.prompts import (
     background_block, check_block, images_block, materials_block, profile_block,
     reader_block, render_prompt, signals_str,
 )
-from rebas.collect.base import all_images, first_image, make_client, strip_html, utcnow_iso
+from rebas.collect.base import (
+    all_images, canonicalize_url, content_hash, first_image, make_client,
+    strip_html, utcnow_iso,
+)
 from rebas.config import AppConfig, Profile, load_secrets, load_sources, pooled_source_groups
 from rebas.llm import LLMBackend, LLMError, complete_json
+from rebas.models import RawItem
 
 _THREAD_KEY_RE = re.compile(r"[^a-z0-9-]+")
 FETCH_TEXT_CAP = 20_000
@@ -367,6 +371,24 @@ def _normalize_thread_key(key: str) -> str:
 def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
                  profile: Profile, board_name: str, issue_date: str,
                  refill: bool = False) -> dict:
+    """常规选题 + 板块栏目。栏目（经典鉴赏，classic_board 配置）在常规选题之后跑：
+    不依赖候选池（淡日也出栏目）、自身幂等（本期已有即跳过）、失败不拖累常规选题
+    （partial 批次与补充轮会自然重试）。"""
+    stats = _stage_editor_regular(conn, conf, backend, board, profile, board_name,
+                                  issue_date, refill=refill)
+    if board == conf.classic_board:
+        try:
+            stats = {**stats, **_nominate_classic(conn, conf, backend, board,
+                                                  issue_date)}
+        except Exception as e:  # noqa: BLE001 —— 栏目级隔离，常规选题成果不陪葬
+            conn.rollback()
+            stats = {**stats, "classic": f"失败（下一批自愈重试）: {type(e).__name__}: {e}"}
+    return stats
+
+
+def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str,
+                          profile: Profile, board_name: str, issue_date: str,
+                          refill: bool = False) -> dict:
     """常规轮：板块无选题时做当日选题。补充轮（refill=True，收尾批用）：
     板块已有选题但少于 refill_min_topics 时，用白天新采集的候选补选不重复的新选题——
     给凌晨备刊时候选太薄的板块一个当日翻盘机会；选题已足则不动。"""
@@ -514,6 +536,144 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
     if supplement:
         stats["refill"] = f"补充 {features} 专题 {briefs} 速览"
     return stats
+
+
+# ---------- Stage 2.5 经典鉴赏栏目（2026-07-07，主编提名 + 图片闸门） ----------
+
+CLASSIC_ATTEMPTS = 3             # 提名重试上限：每次失败=这件作品拿不到可用图，换一件
+CLASSIC_IMG_MIN_BYTES = 10_000   # 名作配图最低体量（过滤图标/占位图）
+CLASSIC_TARGET_LENGTH = 1200
+_WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+
+def _classic_day_rule(issue_date: str) -> str:
+    from datetime import date as date_cls
+    y, m, d = map(int, issue_date.split("-"))
+    wd = date_cls(y, m, d).weekday()
+    mode = "油画日（必须是油画作品）" if wd < 5 else "自由日（任何门类）"
+    return f"今天是 {issue_date}（{_WEEKDAY_CN[wd]}）→ **{mode}**"
+
+
+def _validate_classic_image(client, url: str) -> bool:
+    """图片闸门：真实下载验证（Content-Type 是图、体量在栏目要求区间）。"""
+    if not (url or "").startswith(("http://", "https://")):
+        return False
+    try:
+        resp = client.get(url)
+        ctype = (resp.headers.get("Content-Type")
+                 or resp.headers.get("content-type") or "")
+        return (resp.status_code == 200
+                and ctype.split(";")[0].strip().lower() in _IMAGE_EXT
+                and CLASSIC_IMG_MIN_BYTES <= len(resp.content) <= IMAGE_MAX_BYTES)
+    except Exception:  # noqa: BLE001 —— 验证失败按"拿不到图"处理
+        return False
+
+
+def _wiki_lead_image(client, wiki_title: str) -> str | None:
+    """直图通道：Wikipedia pageimages API 取条目主图（1600px 缩略，
+    upload.wikimedia.org 直链可外链，体量适配网页展示，不抓原始大图）。"""
+    if not wiki_title:
+        return None
+    try:
+        api = ("https://en.wikipedia.org/w/api.php?action=query&format=json"
+               "&prop=pageimages&piprop=thumbnail&pithumbsize=1600&redirects=1"
+               "&titles=" + urllib.parse.quote(wiki_title))
+        data = json.loads(client.get(api).content)
+        for page in (data.get("query") or {}).get("pages", {}).values():
+            src = (page.get("thumbnail") or {}).get("source")
+            if src:
+                return src
+    except Exception:  # noqa: BLE001 —— API 失败走主编直链兜底
+        return None
+    return None
+
+
+def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
+                      issue_date: str) -> dict:
+    """《经典鉴赏》：策展主编（联网）提名一件经典作品，周一至五油画/周末自由。
+
+    图片闸门：直图通道（Wikipedia 主图 API）→ 主编自带直链兜底，两条都验证
+    真实可下载；拿不到图 = 换一件重提（最多 CLASSIC_ATTEMPTS 次），与经典论文
+    "代码验证可抓才成题"同构。成题产物 = 合成条目（url 指向 Wikipedia 条目，
+    取材阶段自然抓正文当供稿材料、收页内图库；图直链进 image_urls 供撰写期审选）
+    + feature 选题（thread_key 前缀 classic-，前端识别为栏目）。
+
+    幂等：本期该板块已有 classic- 选题即跳过；背调照常补作品来历与细节
+    （艺术板块=纯背景故事模式），材料薄时自动触发联网调查。"""
+    if conn.execute(
+            "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
+            " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
+        return {"classic": "已有栏目选题"}
+    done = [r["title"] for r in conn.execute(
+        "SELECT title FROM raw_items WHERE source_id='classic-art'"
+        " ORDER BY id DESC LIMIT 300")]
+    done_block = "\n".join(f"- {t}" for t in done) or "（栏目首期，还没有已鉴赏作品）"
+
+    rejected: list[str] = []
+    with make_client() as client:
+        for _ in range(CLASSIC_ATTEMPTS):
+            retry_block = ""
+            if rejected:
+                retry_block = ("**注意：下列作品刚提名过但拿不到可用图片，请换一件作品**"
+                               "（换作品，不是换图链）：" + "、".join(rejected))
+            prompt = render_prompt(
+                "editor_classic", day_rule=_classic_day_rule(issue_date),
+                done_block=done_block, retry_block=retry_block)
+            result = complete_json(backend, prompt, role="classic")
+            artwork = str(result.get("artwork") or "").strip()
+            artist = str(result.get("artist") or "").strip()
+            wiki_title = str(result.get("wiki_title") or "").strip()
+            own_img = str(result.get("image_url") or "").strip()
+            if not artwork or not (wiki_title or own_img):
+                rejected.append(artwork or "（字段不全的提名）")
+                continue
+
+            images: list[str] = []
+            for cand in (_wiki_lead_image(client, wiki_title), own_img):
+                if cand and cand not in images \
+                        and _validate_classic_image(client, cand):
+                    images.append(cand)
+            if not images:
+                rejected.append(f"{artwork}（{artist}）")
+                continue
+
+            page_url = ("https://en.wikipedia.org/wiki/"
+                        + urllib.parse.quote(wiki_title.replace(" ", "_"))
+                        if wiki_title else images[0])
+            item = RawItem(
+                source_id="classic-art", board=board, kind="article",
+                url=page_url, url_canonical=canonicalize_url(page_url),
+                title=f"{artwork} — {artist}（{result.get('year') or '年代不详'}）",
+                summary=str(result.get("reason") or "")[:500] or None,
+                content_hash=content_hash(f"{artwork}{artist}"),
+                image_url=images[0], image_urls=images)
+            db.insert_item(conn, item)
+            row = conn.execute("SELECT id FROM raw_items WHERE url_canonical=?",
+                               (item.url_canonical,)).fetchone()
+            conn.execute("UPDATE raw_items SET status='selected' WHERE id=?",
+                         (row["id"],))
+
+            key = _normalize_thread_key(
+                str(result.get("thread_key") or f"classic-{wiki_title or artwork}"))
+            if not key.startswith("classic-"):
+                key = ("classic-" + key)[:80]
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO topics (issue_date, board, title, thread_key,"
+                " item_ids, decision, slot, target_length, needs_image,"
+                " update_of_thread, reason, score, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (issue_date, board, (str(result.get("title") or "").strip()
+                                     or artwork)[:200], key,
+                 json.dumps([row["id"]]), "feature", "regular",
+                 CLASSIC_TARGET_LENGTH, 1, None,
+                 ("【经典鉴赏栏目】" + str(result.get("reason") or ""))[:300],
+                 None, utcnow_iso()))
+            conn.commit()
+            if cur.rowcount == 0:
+                return {"classic": f"撞事件线唯一索引，本期跳过（{key}）"}
+            return {"classic": f"{artwork}（{artist}），图 {len(images)} 张"}
+    return {"classic": f"放弃：{CLASSIC_ATTEMPTS} 次提名均拿不到可用图"
+                       f"（{'、'.join(rejected)}）"}
 
 
 # ---------- Stage 3 取材（代码，非 agent） ----------

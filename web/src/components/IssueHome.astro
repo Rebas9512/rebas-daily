@@ -118,7 +118,9 @@ const sections = issue.boards
               )}
               <div class="lead__text">
                 <div class="lead__meta">
-                  <Tag kind={b.lead.kind} />
+                  {b.lead.column
+                    ? <span class="mono coltag">{b.lead.column}</span>
+                    : <Tag kind={b.lead.kind} />}
                   {b.lead.meta.length > 0 && (
                     <span class="mono">{b.lead.meta.join(" · ")}</span>
                   )}
@@ -303,6 +305,16 @@ const sections = issue.boards
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .coltag {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    white-space: nowrap;
   }
 
   .lead__title {

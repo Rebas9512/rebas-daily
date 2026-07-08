@@ -32,6 +32,8 @@ export interface Topic {
   images?: string[];
   /** 撰写期已内联进正文的图（body_html 里的 figure）；头图区据此去重 */
   images_inline?: string[];
+  /** 栏目标签（如"经典鉴赏 CLASSIC"）；有值时替代 kind 类型标签展示 */
+  column?: string;
   body_html?: string;
   read_minutes?: number;
   sources?: SourceRef[];

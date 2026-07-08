@@ -386,6 +386,9 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                 # 多图排版板块：图库 ≥2 张时给 images，前端切多图版式
                 if bm["id"] in _MULTI_IMAGE_BOARDS and len(images) > 1:
                     entry["images"] = images
+                # 栏目标识（经典鉴赏）：thread_key 前缀约定 → 前端渲染栏目标签替代类型标签
+                if (t["thread_key"] or "").startswith("classic-"):
+                    entry["column"] = "经典鉴赏 CLASSIC"
                 if has_body:
                     body_md, inline_used = _replace_body_images(
                         a["body_md"], img_map, images[0] if images else None)

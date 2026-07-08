@@ -49,6 +49,10 @@ class TestPromptTemplates:
         bg_check = render_prompt("checker_background", items_block="[T1] ...")
         assert "ok|fix|drop" in bg_check and "宁删勿留" in bg_check
         assert "[F#]" in bg_check and "门槛放宽" in bg_check  # facts 按新闻口径审
+        classic = render_prompt("editor_classic", day_rule="今天是油画日",
+                                done_block="- 星月夜", retry_block="")
+        assert "wiki_title" in classic and "经典" in classic
+        assert "油画日" in classic and "自由日" in classic   # 双规则常驻模板可编辑
         from rebas.agents.prompts import images_block
         writer = render_prompt("writer", board_name=p.name, topic_title="T",
                                reason="r", target_length=1000,
@@ -521,6 +525,91 @@ class TestEditorRefill:
         s = stage_editor(conn, load_config(), None, "art", self._profile(),
                          "艺术", "2026-07-06")
         assert s["skipped"] == "topics 已存在"
+
+
+class TestClassicColumn:
+    """《经典鉴赏》栏目：提名成功成题、图片闸门换选题重试、幂等、周中/周末门类规则。"""
+
+    def _conn(self, tmp_path):
+        from rebas import db as database
+        return database.init_db(tmp_path / "t.sqlite")
+
+    def _conf(self):
+        import dataclasses
+
+        from rebas.config import load_config
+        return dataclasses.replace(load_config(), classic_board="art")
+
+    def test_nominate_success_and_idempotent(self, tmp_path, monkeypatch):
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_wiki_lead_image",
+                            lambda c, t: "https://upload.wikimedia.org/starry.jpg")
+        monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
+        backend = _FakeBackend(json.dumps({
+            "artwork": "星月夜", "artist": "Vincent van Gogh", "year": "1889",
+            "title": "疗养院窗外的漩涡星空", "wiki_title": "The Starry Night",
+            "image_url": "", "reason": "后印象派最著名的作品之一",
+            "thread_key": "classic-starry-night"}, ensure_ascii=False))
+        s = stages._nominate_classic(conn, self._conf(), backend, "art", "2026-07-06")
+        assert "星月夜" in s["classic"]
+        assert "油画日" in backend.prompts[0]          # 2026-07-06 = 周一
+        t = conn.execute("SELECT * FROM topics").fetchone()
+        assert t["decision"] == "feature" and t["thread_key"] == "classic-starry-night"
+        assert t["reason"].startswith("【经典鉴赏栏目】")
+        item = conn.execute("SELECT * FROM raw_items").fetchone()
+        assert item["source_id"] == "classic-art" and item["status"] == "selected"
+        assert "en.wikipedia.org/wiki/The_Starry_Night" in item["url"]
+        assert json.loads(item["image_urls"]) == ["https://upload.wikimedia.org/starry.jpg"]
+        # 幂等：已有栏目选题即跳过（backend 无剩余输出，再调用会炸 → 证明没调）
+        assert stages._nominate_classic(conn, self._conf(), backend, "art",
+                                        "2026-07-06")["classic"] == "已有栏目选题"
+
+    def test_image_gate_retry_then_giveup(self, tmp_path, monkeypatch):
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_wiki_lead_image", lambda c, t: None)
+        monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: False)
+
+        def nom(name):
+            return json.dumps({"artwork": name, "artist": "A", "year": "1900",
+                               "title": name, "wiki_title": name, "image_url": "",
+                               "reason": "r", "thread_key": f"classic-{name}"},
+                              ensure_ascii=False)
+        backend = _FakeBackend(nom("作品甲"), nom("作品乙"), nom("作品丙"))
+        s = stages._nominate_classic(conn, self._conf(), backend, "art", "2026-07-11")
+        assert s["classic"].startswith("放弃")
+        assert "自由日" in backend.prompts[0]          # 2026-07-11 = 周六
+        assert "作品甲" in backend.prompts[1]          # 重试提示带上拿不到图的作品
+        assert conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM raw_items").fetchone()[0] == 0
+
+    def test_stage_editor_runs_classic_even_when_regular_skips(self, tmp_path,
+                                                               monkeypatch):
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, needs_image, created_at) VALUES"
+            " ('2026-07-06','art','已有题','existing',?,'brief',0,'x')",
+            (json.dumps([1]),))
+        conn.commit()
+        monkeypatch.setattr(stages, "_nominate_classic",
+                            lambda *a, **k: {"classic": "提名成功桩"})
+        profile = Profile(board="art", name="艺术", interests=())
+        s = stages.stage_editor(conn, self._conf(), None, "art", profile,
+                                "艺术", "2026-07-06")
+        assert s["skipped"] == "topics 已存在"          # 常规轮跳过
+        assert s["classic"] == "提名成功桩"             # 栏目照常跑
 
 
 def _writer_brief_conn(tmp_path, summary="这是摘要，比较薄"):

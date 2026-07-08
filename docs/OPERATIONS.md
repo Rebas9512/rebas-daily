@@ -19,7 +19,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 
 ## 结构速览
 
-- `config/config.toml` —— 全局配置（llm 后端与角色型号、出刊参数；`site_keep_days=7` 往期完整页面保留一周，更早进归档存目——渲染期策略，调大重渲染可找回）
+- `config/config.toml` —— 全局配置（llm 后端与角色型号、出刊参数；`site_keep_days=7` 往期完整页面保留一周，更早进归档存目——渲染期策略，调大重渲染可找回；`classic_board="art"` =《经典鉴赏》栏目：该板块每日一件经典作品，周一至五油画/周末自由，classic 角色联网提名 + Wikipedia 直图闸门，拿不到图换作品重提最多 3 次，""=关闭；栏目规则文本在 `config/prompts/editor_classic.md` 可编辑）
 - `config/sources.toml` —— 信息源定义（enabled 开关随时增删）
 - `config/profiles/*.toml` —— 板块兴趣画像；`[reader]` 段 = 读者画像与**背调切入角度**（assumed=已掌握 / explain=要铺垫）：技术板块角度=概念解释，商业/艺术=背景故事，调角度直接改画像文本
 - `config/prompts/*.md` —— agent 提示词模板（string.Template `$` 占位符，改文风不动代码）；**style.md = 全刊文风单点调节**；researcher*.md = 背景调查（含 30 天往期查阅两轮协议 + **调查补充**：仅标题级的新闻/repo 选题、以及原文精读拿不到的论文（付费墙顶刊无预印本，以取材期缓存为准）标注【需调查补充】，背调联网搜索补事实细节，`research_facts_max=0` 关闭；搜索走 `[llm] search_roles`，须写在 `[llm.roles]` 表头之前）；checker_background.md = 背景审核（概念宁删勿留，facts 按新闻口径放宽）

@@ -49,7 +49,9 @@ const gallery =
     )
   }
   <div class="feat__meta">
-    <Tag kind={topic.kind} />
+    {topic.column
+      ? <span class="mono coltag">{topic.column}</span>
+      : <Tag kind={topic.kind} />}
     {topic.meta.length > 0 && <span class="mono">{topic.meta.join(" · ")}</span>}
     {topic.update_of && <span class="mono feat__follow">跟进</span>}
   </div>
@@ -139,6 +141,17 @@ const gallery =
 
   .feat__follow {
     color: var(--accent);
+  }
+
+  /* 栏目标签（经典鉴赏）：朱红点缀语汇，替代类型标签 */
+  .coltag {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    white-space: nowrap;
   }
 
   .feat__title {

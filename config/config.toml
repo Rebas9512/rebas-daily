@@ -14,7 +14,7 @@ timeout_seconds = 300
 # 允许联网搜索的角色（codex exec -c tools.web_search=true；2026-07-06 本机 0.142.5 实测可用）。
 # 背调靠它调查薄材料新闻选题的事实细节；搜索调用耗时更长，超时自动放宽到 2 倍。
 # 注意：此键必须在 [llm.roles] 表头之前（TOML 表作用域）
-search_roles = ["researcher"]
+search_roles = ["researcher", "classic"]   # classic = 经典鉴赏栏目策展（提名要联网核实作品与找图）
 
 [llm.roles]                  # 各 agent 角色 → 模型档位（2026-07-03 实测可用型号）
 default = "gpt-5.5"
@@ -23,6 +23,7 @@ editor = "gpt-5.5"
 checker = "gpt-5.5"
 researcher = "gpt-5.5"       # 背景调查：教科书级概念解释，讲错比不讲更糟 → 主力档
 writer = "gpt-5.5"
+classic = "gpt-5.5"          # 经典鉴赏栏目策展：从自身艺术史知识提名+联网核实
 
 [publish]
 # 2026-07-04 板块拆分：学术只做论文（沉淀 48h 等 OpenAlex），其余板块做最新消息
@@ -55,4 +56,8 @@ research_facts_max = 6             # 调查补充（2026-07-06 新闻/repo，07-
 image_review_boards = ["art", "design"]  # 撰写期图片审选（2026-07-07）：这些板块的候选图下载后
                                          # 附给 writer（codex -i 多模态）实际查看——决定留哪些图
                                          # （可全弃降级无图版式）、正文何处插图；[]=关闭回旧行为
+classic_board = "art"              # 经典鉴赏栏目（2026-07-07）：该板块每天固定一个经典作品
+                                   # 鉴赏专题——主编（classic 角色，联网）提名，周一至五=油画、
+                                   # 周末=自由门类；图片闸门=拿不到可用图就换选题（最多 3 次）。
+                                   # ""=关闭栏目
 # 出刊时间点待定（M5 接 cron 时确定）

@@ -38,11 +38,12 @@ interface Props {
 
 const { issue, board, topic } = Astro.props;
 const slotLabel =
-  topic.slot === "headline"
+  topic.column ??
+  (topic.slot === "headline"
     ? "头条 HEADLINE"
     : topic.is_feature
       ? "专题 FEATURE"
-      : "速览 BRIEF";
+      : "速览 BRIEF");
 const issueLabel = `NO.${String(issue.no).padStart(3, "0")} — ${issue.date}`;
 const boardHref = issueHref(board.id, issue.date);
 // 多图报道页（艺术/设计）：hero 主图 + 其余入图库网格（最多共 6 张）。
@@ -73,7 +74,9 @@ const heroImages = heroPool && heroPool.length > 1 ? heroPool.slice(0, 6) : null
   <div class="container container--narrow">
     <header class="art-head">
       <div class="art-head__meta">
-        <Tag kind={topic.kind} />
+        {topic.column
+          ? <span class="mono coltag">{topic.column}</span>
+          : <Tag kind={topic.kind} />}
         {topic.meta.length > 0 && <span class="mono">{topic.meta.join(" · ")}</span>}
         {topic.read_minutes && <span class="mono">约 {topic.read_minutes} 分钟</span>}
       </div>
@@ -219,6 +222,16 @@ const heroImages = heroPool && heroPool.length > 1 ? heroPool.slice(0, 6) : null
     display: flex;
     align-items: center;
     gap: 12px;
+  }
+
+  .coltag {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    padding: 3px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    white-space: nowrap;
   }
 
   .art-head__title {
