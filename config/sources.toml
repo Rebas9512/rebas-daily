@@ -1638,14 +1638,18 @@ enabled = true              # 月刊 etoc，对口 RL/机器人画像
 id = "jof-wiley"
 board = "quant"
 name = "Journal of Finance"
-type = "rss"
-endpoint = "https://onlinelibrary.wiley.com/feed/15406261/most-recent"
-content = "headline"
+type = "openalex_journal"
+endpoint = "https://api.openalex.org/works?filter=primary_location.source.id:S5353659&sort=publication_date:desc&per-page=50&select=id,display_name,publication_date,created_date,doi,locations,abstract_inverted_index,authorships,cited_by_count&mailto=weiyixin9512@gmail.com"
+content = "abstract"
 kind = "paper"
 paywall = true
 fetch_interval_hours = 24
 pool_days = 30            # 顶刊池：落选候选保留 30 天（约一个刊期）
-enabled = true              # 金融顶刊 most-recent 流（含 early view），~34 条池低频高信号
+enabled = true              # 金融顶刊。2026-07-07 Wiley RSS 开始拦 Hetzner IP（VPS 403、
+                            # 本机 200，上线时曾放行）→ 切 OpenAlex 目录通道（同 AoS/JASA，
+                            # created_date 时效口径，附赠摘要+被引信号，反而比 headline 厚）。
+                            # 复活条件：换非数据中心出口可切回
+                            # https://onlinelibrary.wiley.com/feed/15406261/most-recent
 
 [[source]]
 id = "pnas"
