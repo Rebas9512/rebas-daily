@@ -16,13 +16,17 @@ const year = new Date().getFullYear();
 </footer>
 
 <style>
+  /* 页脚随主题走（2026-07-07）：原固定深灰色带在浅色主题下突兀——
+     改用共享 token（soft 底 + hairline 分隔 + secondary/muted 文字），
+     浅色=浅灰带、深色=深灰带，与正文页面一体 */
   .footer {
-    background: var(--deep);
+    background: var(--soft);
+    border-top: 1px solid var(--hairline);
     margin-top: 56px;
   }
 
   .footer__disclaimer {
-    color: var(--deep-text);
+    color: var(--secondary);
     font-size: 12px;
     line-height: 1.9;
     letter-spacing: 0.04em;
@@ -32,13 +36,13 @@ const year = new Date().getFullYear();
   }
 
   .footer__mail {
-    color: var(--deep-text);
+    color: var(--secondary);
     text-decoration: underline;
     text-underline-offset: 3px;
   }
 
   .footer__mail:hover {
-    color: #fff;
+    color: var(--ink);
   }
 
   .footer__row {
@@ -52,11 +56,11 @@ const year = new Date().getFullYear();
   }
 
   .footer__text {
-    color: var(--deep-text);
+    color: var(--muted);
     letter-spacing: 0.1em;
   }
 
   .footer__link:hover {
-    color: #fff;
+    color: var(--ink);
   }
 </style>
