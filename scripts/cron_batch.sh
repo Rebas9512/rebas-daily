@@ -49,12 +49,17 @@ case "$BATCH" in
      # 累积带上批1板块：批1若因额度耗尽/失败没做完，这里顺延重试（做过的幂等跳过，
      # 空板块还能吃到本批新采集的候选）
   3) $REBAS publish --date "$TOMORROW" --boards academic,art,repos,data,quant ;;
-  4) $REBAS publish --date "$TOMORROW" --refill ;;
-     # 全板块收尾：科技+商业+扫尾，推进状态；--refill=补充轮，
-     # 前三批备的板块若选题<refill_min_topics，用白天新采集的候选补选（选题够则不动）
-  5) $REBAS publish --date "$TOMORROW" --refill ;;
-     # 兜底收尾=批4的重试：批4完成时状态已推进到 rendered，全阶段跳过零 token 空转；
-     # 批4半途而废（额度耗尽等）时从状态断点补完剩余板块/稿件并推进状态
+  4|5)
+    # 批4=全板块收尾：科技+商业+扫尾，推进状态；--refill=补充轮，
+    #   前三批备的板块若选题<refill_min_topics，用白天新采集的候选补选（选题够则不动）
+    # 批5=兜底收尾（批4的重试）：批4完成时状态已 rendered，全阶段跳过零 token 空转；
+    #   批4半途而废（额度耗尽等）时从状态断点补完剩余板块/稿件并推进状态
+    $REBAS publish --date "$TOMORROW" --refill
+    # 收尾批也重建+部署当日站点（内容受发布闸门保护不变）：白天同步的前端改动
+    # （版式/分享键等）当天可见，不用等次日批1翻牌（2026-07-07，分享键实际踩到）
+    $REBAS render
+    if [ -n "${DEPLOY_CMD:-}" ]; then $DEPLOY_CMD; fi
+    ;;
   *) echo "未知批次 $BATCH"; exit 1 ;;
 esac
 
