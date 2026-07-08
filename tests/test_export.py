@@ -177,6 +177,10 @@ def test_export_image_plan(tmp_path):
          body_md="开头段\n\n![展览现场](IMG1)\n\n![x](IMG2)\n\n![y](IMG3)\n\n结尾段")
     seed("dropped-all", image_plan=json.dumps({"kept": []}))
     seed("legacy")   # 无 image_plan → 回退条目图
+    seed("inline-token", image_plan=json.dumps({"kept": [[1, u1], [2, u2]]}),
+         body_md="令牌写进段落中间 ![图注](IMG2) 不插图但要剥干净。")
+    seed("md-image", body_md="未审选文章自写外源图 ![x](https://evil.example/x.jpg)")
+    seed("bad-plan", image_plan='{"kept": [["坏", "https://img.x/z.jpg"]]}')
     conn.commit()
 
     conf = dataclasses.replace(load_config(), site_dir=tmp_path / "site")
@@ -200,6 +204,18 @@ def test_export_image_plan(tmp_path):
 
     lg = topics["legacy"]
     assert lg["image"] == "https://img.x/fallback.jpg"     # 旧数据回退条目图
+
+    it = topics["inline-token"]
+    assert "IMG2" not in it["body_html"]                   # 段落中间令牌剥掉不插图
+    assert u2 not in it["body_html"] and "images_inline" not in it
+    assert "剥干净" in it["body_html"]                      # 正文其余部分完好
+
+    mi = topics["md-image"]
+    assert "<img" not in mi["body_html"]                   # 未审选文章不放行外源图
+    assert "evil.example" not in mi["body_html"]
+
+    bp = topics["bad-plan"]                                # 坏 plan 当未审选，不崩导出
+    assert bp["image"] == "https://img.x/fallback.jpg"
 
 
 def test_math_rendering():

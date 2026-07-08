@@ -71,8 +71,10 @@ _MATHML_TAGS = {
 _ALLOWED_TAGS = {
     "p", "h2", "h3", "h4", "ul", "ol", "li", "blockquote", "a", "code", "pre",
     "strong", "em", "br", "hr", "table", "thead", "tbody", "tr", "th", "td",
-    "figure", "figcaption", "img",   # 撰写期审选的正文插图（_replace_body_images）
 } | _MATHML_TAGS
+# 正文媒体标签只对"审选过图"的文章开放（_replace_body_images 注入的 figure）；
+# 未审选文章维持旧姿态——模型自写的 markdown 图一律剥掉，不渲染外源图
+_MEDIA_TAGS = {"figure", "figcaption", "img"}
 _ALLOWED_ATTRS = {
     "a": {"href", "title"},
     "img": {"src", "alt", "loading", "decoding", "referrerpolicy"},
@@ -159,12 +161,13 @@ def _extract_math(text: str) -> tuple[str, dict[str, str]]:
     return "".join(parts), rendered
 
 
-def _md(text: str) -> str:
+def _md(text: str, allow_media: bool = False) -> str:
     text, math_map = _extract_math(text or "")
     html = md_lib.markdown(text, extensions=["extra"])
     for token, mathml in math_map.items():
         html = html.replace(token, mathml)
-    return nh3.clean(html, tags=_ALLOWED_TAGS, attributes=_ALLOWED_ATTRS,
+    tags = _ALLOWED_TAGS | (_MEDIA_TAGS if allow_media else set())
+    return nh3.clean(html, tags=tags, attributes=_ALLOWED_ATTRS,
                      link_rel="noopener")
 
 
@@ -229,7 +232,8 @@ def _topic_images(article, items: list, cap: int = _TOPIC_IMAGES_CAP) -> list[st
     for i in items:
         try:
             gallery = json.loads(i["image_urls"] or "[]")
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, IndexError):
+            # IndexError：调用方行对象缺 image_urls 列（防御，勿依赖——列应随查询给全）
             gallery = []
         candidates += [(u, i["url"]) for u in gallery]
         if i["image_url"]:
@@ -253,13 +257,16 @@ def _topic_images(article, items: list, cap: int = _TOPIC_IMAGES_CAP) -> list[st
 
 # 撰写期插图令牌：`![图注](IMG3)` 独立成行（writer 按图片审选协议输出）
 _BODY_IMG_RE = re.compile(r"^[ \t]*!\[([^\]\n]*)\]\(\s*IMG(\d+)\s*\)[ \t]*$", re.M)
+# 兜底：没独立成行的令牌（写进段落中间）——不插图，剥掉令牌文本防漏成坏图
+_INLINE_IMG_TOKEN_RE = re.compile(r"!\[[^\]\n]*\]\(\s*IMG\d+\s*\)")
 
 
 def _replace_body_images(body_md: str, img_map: dict[int, str],
                          hero: str | None) -> tuple[str, list[str]]:
     """正文插图令牌 → 内联 <figure>（图注进 figcaption）。
 
-    未保留/未知编号的令牌整行移除；头图令牌也移除（版式已把它放文首，防双显）。
+    未保留/未知编号的令牌整行移除；头图令牌也移除（版式已把它放文首，防双显）；
+    段落中间的令牌剥掉不插图（块级 figure 不能嵌进段落）。
     返回 (替换后文本, 内联用图 URL 列表)——后者供报道页头图区去重。"""
     used: list[str] = []
 
@@ -274,20 +281,21 @@ def _replace_body_images(body_md: str, img_map: dict[int, str],
         return (f'\n<figure><img src="{html_lib.escape(url)}" alt="" loading="lazy"'
                 f' decoding="async" referrerpolicy="no-referrer">{cap}</figure>\n')
 
-    return _BODY_IMG_RE.sub(_sub, body_md or ""), used
+    md = _BODY_IMG_RE.sub(_sub, body_md or "")
+    return _INLINE_IMG_TOKEN_RE.sub("", md), used
 
 
 def _load_image_plan(article) -> tuple[list[str], dict[int, str]] | None:
     """撰写期图片审选产物 → (展示图列表, 编号→URL 映射)。None = 未审选（回退旧逻辑）。
-    kept 为空列表也是有效裁决（全弃 → 无图版式）。"""
+    kept 为空列表也是有效裁决（全弃 → 无图版式）；坏数据当未审选，导出永不因它中断。"""
     if article is None or not article["image_plan"]:
         return None
     try:
         plan = json.loads(article["image_plan"])
+        kept = [(int(n), u) for n, u in plan.get("kept") or []
+                if isinstance(u, str) and u.startswith(("http://", "https://"))]
     except (TypeError, ValueError):
         return None
-    kept = [(int(n), u) for n, u in plan.get("kept") or []
-            if isinstance(u, str) and u.startswith(("http://", "https://"))]
     return [u for _, u in kept], dict(kept)
 
 
@@ -381,7 +389,7 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                 if has_body:
                     body_md, inline_used = _replace_body_images(
                         a["body_md"], img_map, images[0] if images else None)
-                    entry["body_html"] = _md(body_md)
+                    entry["body_html"] = _md(body_md, allow_media=bool(img_map))
                     if inline_used:
                         # 正文已内联的图：报道页头图区据此去重，不双显
                         entry["images_inline"] = inline_used

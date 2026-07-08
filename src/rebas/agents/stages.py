@@ -254,14 +254,16 @@ def stage_enrich(conn, conf: AppConfig, board: str) -> dict:
 
     clause, params = _window_clause(conf)
     rows = conn.execute(
-        f"SELECT id, url, signals FROM raw_items"
+        f"SELECT id, url, url_canonical, signals FROM raw_items"
         f" WHERE board=? AND status='new' AND {clause}", [board, *params]).fetchall()
     targets = []                                  # (item_id, arxiv_id, signals)
     for r in rows:
         sig = json.loads(r["signals"] or "{}")
         if "oa_at" in sig:                        # 已命中过，不重查
             continue
-        m = _ARXIV_ID_RE.search(r["url"] or "")
+        # canonical 兜底：HF papers/期刊映射条目的 url 是落地页，arXiv 链接在 canonical
+        m = (_ARXIV_ID_RE.search(r["url"] or "")
+             or _ARXIV_ID_RE.search(r["url_canonical"] or ""))
         if m:
             targets.append((r["id"], m.group(1), sig))
     if not targets:
@@ -612,7 +614,7 @@ def _topic_items(conn, topic_row):
     ids = json.loads(topic_row["item_ids"])
     rows = conn.execute(
         f"SELECT id, title, summary, extracted_text, url, url_canonical, kind,"
-        f" source_id, author, image_url"
+        f" source_id, author, image_url, image_urls"
         f" FROM raw_items WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()
     rows.sort(key=lambda r: ids.index(r["id"]))   # 保持主编排序（首条为主材料）
     return rows
@@ -884,8 +886,10 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
 # 撰写期图片审选（2026-07-07）：候选图下载后附给 writer（codex -i 多模态）实际查看
 _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png",
               "image/webp": ".webp", "image/gif": ".gif"}
+_CARD_IMG_TOKEN_RE = re.compile(r"!\[[^\]\n]*\]\(\s*IMG\d+\s*\)")
 IMAGE_REVIEW_CAP = 6            # 每篇最多附几张候选图
 IMAGE_MAX_BYTES = 8_000_000     # 单图字节上限（防超大原图浪费附件与 token）
+IMAGE_MIN_BYTES = 2_000         # 单图字节下限（躲过 URL 过滤的小图标/跟踪像素）
 
 
 def _prepare_topic_images(conf: AppConfig, topic_id: int, rows) -> list:
@@ -906,7 +910,7 @@ def _prepare_topic_images(conf: AppConfig, topic_id: int, rows) -> list:
                 ctype = ctype.split(";")[0].strip().lower()
                 ext = _IMAGE_EXT.get(ctype)
                 if resp.status_code != 200 or not ext \
-                        or len(resp.content) > IMAGE_MAX_BYTES:
+                        or not IMAGE_MIN_BYTES <= len(resp.content) <= IMAGE_MAX_BYTES:
                     continue
                 conf.image_cache_dir.mkdir(parents=True, exist_ok=True)
                 path = conf.image_cache_dir / f"t{topic_id}-{len(out) + 1}{ext}"
@@ -1030,10 +1034,12 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 p.unlink(missing_ok=True)
         # 防御性清洗：文末孤立的空标题标记（模型输出截断残渣，避免渲染出空标题）
         body_md = re.sub(r"(?:\n#{1,6}[ \t]*)+\s*$", "", (result.get("body_md") or "")).rstrip()
+        # 卡片摘要防漏插图令牌（令牌只在正文里有意义，导出期才解析）
+        card = _CARD_IMG_TOKEN_RE.sub("", result.get("card_summary", ""))
         conn.execute(
             "INSERT INTO articles (topic_id, card_summary, body_md, credibility_notes,"
             " image_refs, image_plan, model_meta, created_at) VALUES (?,?,?,?,?,?,?,?)",
-            (t["id"], strip_html(result.get("card_summary", ""))[:200],
+            (t["id"], strip_html(card)[:200],
              body_md, t["check_notes"],
              json.dumps([r["image_url"] for r in rows if r["image_url"]][:3]),
              _parse_image_plan(result, numbered),

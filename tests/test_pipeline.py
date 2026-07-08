@@ -609,6 +609,23 @@ def _writer_design_conn(tmp_path):
     return conn
 
 
+def test_topic_items_feed_topic_images(tmp_path):
+    """回归锁定：writer 期取候选图走 _topic_items 行 + 导出层 _topic_images——
+    行对象必须带 image_urls 列（缺列时 sqlite3.Row 抛 IndexError 直接崩掉板块）。"""
+    import json
+
+    from rebas.agents.stages import _topic_items
+    from rebas.render.export import _topic_images
+
+    conn = _writer_design_conn(tmp_path)
+    conn.execute("UPDATE raw_items SET image_urls=?",
+                 (json.dumps(["https://img.x/1.jpg", "https://img.x/2.jpg"]),))
+    conn.commit()
+    t = conn.execute("SELECT * FROM topics").fetchone()
+    rows = _topic_items(conn, t)
+    assert _topic_images(None, rows) == ["https://img.x/1.jpg", "https://img.x/2.jpg"]
+
+
 def test_stage_writer_image_review(tmp_path, monkeypatch):
     """撰写期图片审选：候选图附给 writer、images_keep 按展示顺序落 image_plan
     （幽灵编号忽略、去重），临时图用完即删。"""
@@ -628,10 +645,12 @@ def test_stage_writer_image_review(tmp_path, monkeypatch):
         lambda *_: [(1, "https://img.x/1.jpg", p1), (2, "https://img.x/2.jpg", p2)])
 
     backend = _FakeBackend(json.dumps({
-        "card_summary": "卡", "body_md": "正文\n\n![现场](IMG2)",
+        "card_summary": "卡片 ![x](IMG1) 摘要", "body_md": "正文\n\n![现场](IMG2)",
         "images_keep": [2, 1, 99, 2]}, ensure_ascii=False))
     assert stages.stage_writer(conn, conf, backend, "design", "设计",
                                "2026-01-01") == {"written": 1}
+    assert conn.execute("SELECT card_summary FROM articles").fetchone()[0] \
+        == "卡片 摘要"                                       # 卡片摘要剥令牌
     assert "图1: https://img.x/1.jpg" in backend.prompts[0]   # 图片材料块
     assert "images_keep" in backend.prompts[0]
     assert backend.images[0] == (p1, p2)                       # 附件按编号顺序
