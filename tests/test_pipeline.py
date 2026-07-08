@@ -612,6 +612,45 @@ class TestClassicColumn:
         assert s["classic"] == "提名成功桩"             # 栏目照常跑
 
 
+def test_force_rewind_excludes_classic_item(tmp_path):
+    """force-stage 级联清理不把栏目合成条目放回候选池：editor 回拨时普通候选
+    回 screened、栏目条目置 dropped；screen 回拨时栏目条目也不重置为 new
+    （否则《宫娥》的 Wikipedia 条目会混进粗筛/主编的正常选题流）。"""
+    import json
+
+    from rebas import db as database
+    from rebas.collect.base import utcnow_iso
+    from rebas.config import load_config
+    from rebas.pipeline import _rewind_products
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    now = utcnow_iso()
+    for sid, url in (("dezeen", "http://x/a"), ("classic-art", "http://wiki/b")):
+        conn.execute(
+            "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+            " fetched_at, status) VALUES (?,?,?,?,'t',?,'selected')",
+            (sid, "art", url, url, now))
+    ids = [r["id"] for r in conn.execute("SELECT id FROM raw_items ORDER BY id")]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+        " decision, needs_image, created_at) VALUES"
+        " ('2026-01-01','art','题','k',?,'feature',0,'x')", (json.dumps(ids),))
+    conn.commit()
+
+    _rewind_products(conn, load_config(), "2026-01-01", "editor", lambda *_: None)
+    st = {r["source_id"]: r["status"] for r in conn.execute(
+        "SELECT source_id, status FROM raw_items")}
+    assert st["dezeen"] == "screened"        # 普通候选回粗筛池
+    assert st["classic-art"] == "dropped"    # 栏目条目不回池
+    assert conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
+
+    _rewind_products(conn, load_config(), "2026-01-01", "screen", lambda *_: None)
+    st = {r["source_id"]: r["status"] for r in conn.execute(
+        "SELECT source_id, status FROM raw_items")}
+    assert st["dezeen"] == "new"             # 窗口内候选重置待粗筛
+    assert st["classic-art"] == "dropped"    # 栏目条目仍隔离在池外
+
+
 def _writer_brief_conn(tmp_path, summary="这是摘要，比较薄"):
     import json
 
