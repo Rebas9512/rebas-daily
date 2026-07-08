@@ -571,6 +571,32 @@ def stage_fetch(conn, conf: AppConfig, board: str, issue_date: str) -> dict:
             conn.commit()
             time.sleep(1.0)   # 取材礼貌间隔
 
+        # 图库补抓（2026-07-07，图片审选板块）：材料够厚的条目上面的主路径不下载页面，
+        # 而 gnews 等标题源的正文图库只在原文页上——图库为空的条目单独抓一次页面收图，
+        # 只补 image_urls/image_url，不动 extracted_text。失败静默（审选自然回退单图/无图）。
+        if board in conf.image_review_boards:
+            for iid in item_ids:
+                r = conn.execute(
+                    "SELECT id, url, extracted_text, image_url, image_urls"
+                    " FROM raw_items WHERE id=?", (iid,)).fetchone()
+                if not r["extracted_text"] or r["image_urls"]:
+                    continue     # 薄材料条目已走主路径；已有图库的不重抓
+                try:
+                    html = client.get(r["url"]).text
+                    gallery = all_images(html, base_url=r["url"])
+                    if r["image_url"] and r["image_url"] not in gallery:
+                        gallery.insert(0, r["image_url"])
+                    if gallery:
+                        conn.execute(
+                            "UPDATE raw_items SET image_urls=?,"
+                            " image_url=COALESCE(image_url, ?) WHERE id=?",
+                            (json.dumps(gallery[:6]), gallery[0], iid))
+                        stats["gallery"] = stats.get("gallery", 0) + 1
+                except Exception:  # noqa: BLE001 —— 单条补抓失败不阻塞出刊
+                    pass
+                conn.commit()
+                time.sleep(1.0)
+
         # 论文精读：feature（专题精读）与 brief（速览精读，2026-07-06）选题的首个论文
         # 条目抓 arXiv 原文进文件缓存。缓存按两者较大上限抓一次，写作时速览再裁到小上限。
         # 已成稿的选题跳过——否则 writer 删缓存后，之后每轮自愈 publish 都会白抓一遍

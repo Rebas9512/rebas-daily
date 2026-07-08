@@ -609,6 +609,57 @@ def _writer_design_conn(tmp_path):
     return conn
 
 
+def test_stage_fetch_gallery_refetch(tmp_path, monkeypatch):
+    """图库补抓：审选板块材料够厚的条目（取材主路径跳过）且图库为空 → 单独抓页收图，
+    不动 extracted_text；gnews 等标题源的正文图库由此补上。"""
+    import dataclasses
+    import json
+
+    from rebas import db as database
+    from rebas.agents import stages
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+        " extracted_text, fetched_at) VALUES ('gnews-art','art','https://x.com/a',"
+        " 'https://x.com/a','条目',?, 'x')", ("厚" * 600,))
+    iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " needs_image, created_at, reason) VALUES"
+        " ('2026-01-01','art','题','k',?,'brief',0,'x','r')", (json.dumps([iid]),))
+    conn.commit()
+
+    class _FakeResp:
+        text = ('<img src="https://cdn.x/1.jpg"><img src="https://cdn.x/2.jpg">'
+                '<img src="https://cdn.x/logo.svg">')
+
+    class _FakeClient:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def get(self, url):
+            return _FakeResp()
+
+    monkeypatch.setattr(stages, "make_client", lambda: _FakeClient())
+    monkeypatch.setattr(stages.time, "sleep", lambda *_: None)
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    s = stages.stage_fetch(conn, conf, "art", "2026-01-01")
+    assert s.get("gallery") == 1
+    row = conn.execute("SELECT image_url, image_urls, extracted_text"
+                       " FROM raw_items").fetchone()
+    assert json.loads(row["image_urls"]) == ["https://cdn.x/1.jpg",
+                                             "https://cdn.x/2.jpg"]   # svg 已滤
+    assert row["image_url"] == "https://cdn.x/1.jpg"     # 单图口径顺带补上
+    assert row["extracted_text"] == "厚" * 600            # 正文不动
+    # 幂等：已有图库不重抓
+    assert "gallery" not in stages.stage_fetch(conn, conf, "art", "2026-01-01")
+
+
 def test_topic_items_feed_topic_images(tmp_path):
     """回归锁定：writer 期取候选图走 _topic_items 行 + 导出层 _topic_images——
     行对象必须带 image_urls 列（缺列时 sqlite3.Row 抛 IndexError 直接崩掉板块）。"""
