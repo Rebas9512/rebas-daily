@@ -98,6 +98,7 @@ class AppConfig:
     research_facts_max: int
     image_review_boards: tuple[str, ...]
     classic_board: str
+    classic_paper_board: str
 
     @property
     def db_path(self) -> Path:
@@ -146,6 +147,7 @@ def load_config() -> AppConfig:
         image_review_boards=tuple(publish.get("image_review_boards",
                                               ["art", "design"])),
         classic_board=str(publish.get("classic_board", "")),
+        classic_paper_board=str(publish.get("classic_paper_board", "")),
     )
 
 

@@ -373,7 +373,10 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
                  refill: bool = False) -> dict:
     """常规选题 + 板块栏目。栏目（经典鉴赏，classic_board 配置）在常规选题之后跑：
     不依赖候选池（淡日也出栏目）、自身幂等（本期已有即跳过）、失败不拖累常规选题
-    （partial 批次与补充轮会自然重试）。"""
+    （partial 批次与补充轮会自然重试）。
+
+    经典论文精读（classic_paper_board 配置）是淡日供给机制，只在收尾批（refill=True）
+    且常规选题定局后评估触发条件（零 feature），与每日必出的经典鉴赏节律不同。"""
     stats = _stage_editor_regular(conn, conf, backend, board, profile, board_name,
                                   issue_date, refill=refill)
     if board == conf.classic_board:
@@ -383,6 +386,14 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
         except Exception as e:  # noqa: BLE001 —— 栏目级隔离，常规选题成果不陪葬
             conn.rollback()
             stats = {**stats, "classic": f"失败（下一批自愈重试）: {type(e).__name__}: {e}"}
+    if board == conf.classic_paper_board and refill:
+        try:
+            stats = {**stats, **_nominate_classic_paper(conn, conf, backend, board,
+                                                        profile, issue_date)}
+        except Exception as e:  # noqa: BLE001 —— 栏目级隔离，常规选题成果不陪葬
+            conn.rollback()
+            stats = {**stats,
+                     "classic_paper": f"失败（下一批自愈重试）: {type(e).__name__}: {e}"}
     return stats
 
 
@@ -471,13 +482,12 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
             slot = "regular"            # 补充轮不夺已有头条
         cur = conn.execute(
             "INSERT OR IGNORE INTO topics (issue_date, board, title, thread_key,"
-            " item_ids, decision, slot, target_length, needs_image, update_of_thread,"
-            " reason, score, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " item_ids, decision, slot, target_length, update_of_thread,"
+            " reason, score, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (issue_date, board, (t.get("title") or "")[:200],
              _normalize_thread_key(t.get("thread_key") or ""),
              json.dumps(item_ids), decision, slot,
              t.get("target_length") if decision == "feature" else None,
-             1 if t.get("needs_image") else 0,
              t.get("update_of_thread"), (t.get("reason") or "")[:300], None, now))
         if cur.rowcount == 0:              # 撞 (issue_date,board,thread_key) 唯一索引
             if decision == "feature":
@@ -659,13 +669,13 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 key = ("classic-" + key)[:80]
             cur = conn.execute(
                 "INSERT OR IGNORE INTO topics (issue_date, board, title, thread_key,"
-                " item_ids, decision, slot, target_length, needs_image,"
+                " item_ids, decision, slot, target_length,"
                 " update_of_thread, reason, score, created_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (issue_date, board, (str(result.get("title") or "").strip()
                                      or artwork)[:200], key,
                  json.dumps([row["id"]]), "feature", "regular",
-                 CLASSIC_TARGET_LENGTH, 1, None,
+                 CLASSIC_TARGET_LENGTH, None,
                  ("【经典鉴赏栏目】" + str(result.get("reason") or ""))[:300],
                  None, utcnow_iso()))
             conn.commit()
@@ -674,6 +684,177 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
             return {"classic": f"{artwork}（{artist}），图 {len(images)} 张"}
     return {"classic": f"放弃：{CLASSIC_ATTEMPTS} 次提名均拿不到可用图"
                        f"（{'、'.join(rejected)}）"}
+
+
+# ---------- Stage 2.6 经典论文精读栏目（2026-07-09，淡日供给：提名 + 原文闸门） ----------
+# 与经典鉴赏同构：主编（classic 角色，联网）从自身知识提名 → 代码闸门验证 → 换一篇重试。
+# 闸门是双重的：arXiv API 题录核对（防"ID 合法但指向别的论文"——比抓不到更危险，writer
+# 会精读错误原文）+ 真实抓到全文（走 _fetch_arxiv_fulltext，成功即落 paper_cache，
+# fetch 阶段按缓存存在自动跳过，不双抓）。writer 防幻觉铁律不动：成题前提是原文到手。
+
+CLASSIC_PAPER_ATTEMPTS = 3
+CLASSIC_PAPER_TARGET_LENGTH = 1800
+_BARE_ARXIV_ID_RE = re.compile(
+    r"^([0-9]{4}\.[0-9]{4,5}|[a-z-]+(?:\.[A-Z]{2})?/[0-9]{7})(v[0-9]+)?$")
+
+
+def _norm_title(t: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (t or "").lower())
+
+
+def _titles_match(a: str, b: str) -> bool:
+    """提名题名 vs arXiv 官方题名：归一化后互为子串即认（容副题/标点差异）。"""
+    na, nb = _norm_title(a), _norm_title(b)
+    return bool(na) and bool(nb) and (na in nb or nb in na)
+
+
+def _arxiv_api_meta(client, arxiv_id: str) -> dict | None:
+    """arXiv 官方 API 取题录（题名/作者/摘要/日期）——提名核对与合成条目的权威元数据。"""
+    import feedparser  # 懒加载（collect 层同款依赖）
+    try:
+        payload = client.get(
+            "https://export.arxiv.org/api/query?id_list=" + arxiv_id).content
+        entries = feedparser.parse(payload).entries
+        if not entries:
+            return None
+        e = entries[0]
+        title = re.sub(r"\s+", " ", e.get("title") or "").strip()
+        # 无效 ID 时 API 返回题为 Error 的占位条目
+        if not title or title.lower() == "error":
+            return None
+        return {
+            "title": title,
+            "authors": ", ".join(a.get("name", "")
+                                 for a in (e.get("authors") or [])[:3]),
+            "summary": re.sub(r"\s+", " ",
+                              strip_html(e.get("summary") or "")).strip(),
+            "published": (e.get("published") or "")[:10],
+        }
+    except Exception:  # noqa: BLE001 —— API 失败按"核对不上"处理，换一篇
+        return None
+
+
+def _openalex_classic_cites(client, title: str) -> int | None:
+    """经典论文被引数（锦上添花，拿不到不阻塞）：合成条目在 enrich 之后才出生，
+    错过批量通道，这里单查一次。按题名检索、被引降序取首条——经典论文的正主
+    就是同题最高被引；arXiv DataCite DOI 不可靠（OpenAlex 未索引，实测 404）。
+    题名核对不上（同名歧义）宁可不显示。"""
+    api_key = load_secrets().get("OpenAlexAPI")
+    if not api_key:
+        return None
+    try:
+        data = _openalex_get(client, "works", {
+            "filter": f"title.search:{title}", "sort": "cited_by_count:desc",
+            "per-page": "1", "select": "title,cited_by_count"}, api_key)
+        top = (data.get("results") or [{}])[0]
+        if not _titles_match(title, top.get("title") or ""):
+            return None
+        return int(top.get("cited_by_count") or 0) or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _nominate_classic_paper(conn, conf: AppConfig, backend: LLMBackend, board: str,
+                            profile: Profile, issue_date: str) -> dict:
+    """《经典重读》：淡日（收尾批常规选题定局后该板块零 feature）提名一篇突破性
+    经典论文做全文精读。成题产物 = 合成条目（source_id=classic-paper，题录取自
+    arXiv API，摘要当供稿材料，全文直接落 paper_cache）+ feature 选题
+    （thread_key=classic-{arxiv_id}，无头条时即当日头条——淡日头条即经典重读）。
+
+    幂等：本期该板块已有 classic- 选题即跳过。跨期去重双保险：已精读清单注入
+    提示词 + thread_key 全库硬查（撞上按无效提名换一篇）。背调/核查照常跑
+    （概念解释 + 背景审核），writer 走论文精读线。"""
+    if conn.execute(
+            "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
+            " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
+        return {"classic_paper": "已有栏目选题"}
+    if conn.execute(
+            "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
+            " AND decision='feature' LIMIT 1", (issue_date, board)).fetchone():
+        return {"classic_paper": "非淡日（已有专题）——栏目不触发"}
+
+    done = [r["title"] for r in conn.execute(
+        "SELECT title FROM raw_items WHERE source_id='classic-paper'"
+        " ORDER BY id DESC LIMIT 300")]
+    done_block = "\n".join(f"- {t}" for t in done) or "（栏目首期，还没有已精读论文）"
+    fetch_cap = max(conf.paper_fulltext_max_chars, conf.paper_brief_fulltext_max_chars)
+
+    rejected: list[str] = []
+    with make_client() as client:
+        for _ in range(CLASSIC_PAPER_ATTEMPTS):
+            retry_block = ""
+            if rejected:
+                retry_block = ("**注意：下列论文刚提名过但不可用（ID 核对不上/arXiv"
+                               " 拿不到全文/已精读过），请换一篇论文**："
+                               + "、".join(rejected))
+            prompt = render_prompt(
+                "editor_classic_paper", profile_block=profile_block(profile),
+                done_block=done_block, retry_block=retry_block)
+            result = complete_json(backend, prompt, role="classic")
+            paper = str(result.get("paper") or "").strip()
+            raw_id = (str(result.get("arxiv_id") or "").strip()
+                      .removeprefix("arXiv:").removeprefix("arxiv:"))
+            m = _BARE_ARXIV_ID_RE.match(raw_id)
+            if not paper or not m:
+                rejected.append(paper or "（字段不全的提名）")
+                continue
+            aid = m.group(1)                       # 去版本号：缓存与 URL 都按裸 id
+            key = _normalize_thread_key("classic-" + aid.replace(".", "-")
+                                        .replace("/", "-"))
+            if conn.execute("SELECT 1 FROM topics WHERE thread_key=? LIMIT 1",
+                            (key,)).fetchone():
+                rejected.append(f"{paper}（已精读过）")
+                continue
+            meta = _arxiv_api_meta(client, aid)
+            if not meta or not _titles_match(paper, meta["title"]):
+                rejected.append(f"{paper}（arXiv:{aid} 题录核对不上）")
+                continue
+            text = _fetch_arxiv_fulltext(client, aid, fetch_cap)
+            if not text:
+                rejected.append(f"{paper}（arXiv:{aid} 拿不到全文）")
+                continue
+
+            url = f"https://arxiv.org/abs/{aid}"
+            cites = _openalex_classic_cites(client, meta["title"])
+            item = RawItem(
+                source_id="classic-paper", board=board, kind="paper",
+                url=url, url_canonical=canonicalize_url(url),
+                title=meta["title"], author=meta["authors"] or None,
+                published_at=meta["published"] or None,
+                summary=meta["summary"][:2000] or None,
+                content_hash=content_hash(meta["title"]),
+                signals={"oa_paper_cites": cites} if cites else None)
+            db.insert_item(conn, item)
+            row = conn.execute("SELECT id FROM raw_items WHERE url_canonical=?",
+                               (item.url_canonical,)).fetchone()
+            conn.execute("UPDATE raw_items SET status='selected' WHERE id=?",
+                         (row["id"],))
+            conf.paper_cache_dir.mkdir(parents=True, exist_ok=True)
+            (conf.paper_cache_dir / f"{row['id']}.txt").write_text(
+                text, encoding="utf-8")
+
+            has_headline = conn.execute(
+                "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
+                " AND slot='headline' LIMIT 1", (issue_date, board)).fetchone()
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO topics (issue_date, board, title, thread_key,"
+                " item_ids, decision, slot, target_length,"
+                " update_of_thread, reason, score, created_at)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (issue_date, board, (str(result.get("title") or "").strip()
+                                     or meta["title"])[:200], key,
+                 json.dumps([row["id"]]), "feature",
+                 "regular" if has_headline else "headline",
+                 CLASSIC_PAPER_TARGET_LENGTH, None,
+                 ("【经典重读栏目】" + str(result.get("reason") or ""))[:300],
+                 None, utcnow_iso()))
+            conn.commit()
+            if cur.rowcount == 0:
+                return {"classic_paper": f"撞事件线唯一索引，本期跳过（{key}）"}
+            return {"classic_paper": f"{meta['title'][:60]}（arXiv:{aid}）"
+                                     + (f"，被引 {cites:,}" if cites else "")}
+    return {"classic_paper": f"放弃：{CLASSIC_PAPER_ATTEMPTS} 次提名均不可用"
+                             f"（{'、'.join(rejected)}）"}
 
 
 # ---------- Stage 3 取材（代码，非 agent） ----------

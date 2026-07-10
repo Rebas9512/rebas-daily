@@ -106,12 +106,31 @@ _DISPLAY_MATH_RE = re.compile(r"\$\$(?P<a>.+?)\$\$|\\\[(?P<b>.+?)\\\]", re.S)
 _INLINE_MATH_RE = re.compile(r"\$(?P<a>[^$\n]{1,200}?)\$|\\\((?P<b>[^\n]+?)\\\)")
 _CJK_RE = re.compile(r"[一-鿿　-〿＀-￯]")
 _MATHISH_RE = re.compile(r"[A-Za-z\\^_={}]")
+_NUMERICISH_RE = re.compile(r"[0-9.,%/*+\-−×÷:^()=~≈<>≤≥± ]+")
+_CJK_LIST_SEP_RE = re.compile(r"([、，；])")
 
 
 def _looks_like_math(tex: str) -> bool:
     """行内 $…$ 的防误伤门槛：像数学才转（"$100 million" 这类货币不碰）。"""
     tex = tex.strip()
-    return bool(tex) and bool(_MATHISH_RE.search(tex)) and not _CJK_RE.search(tex)
+    if not tex or _CJK_RE.search(tex):
+        return False
+    if _MATHISH_RE.search(tex):
+        return True
+    # 纯数字算式（$0.69/0.309$）：没有字母也算数学。首尾必须落在数字/右括号/百分号上，
+    # 防止 "$5-$10" 这类货币区间把中段的 "5-" 误当公式
+    return (bool(_NUMERICISH_RE.fullmatch(tex)) and tex[0] in "0123456789("
+            and (tex[-1].isdigit() or tex[-1] in ")%"))
+
+
+def _split_cjk_list(tex: str) -> list[str] | None:
+    """$0.381、0.309、0$ 这类顿号/逗号分隔的数字列表：写手习惯把整串包进一对 $，
+    CJK 分隔符进不了 LaTeX。拆成 [段, 分隔符, 段, …]（奇数位是分隔符），
+    每段单独像数学才拆；拆不动返回 None 维持原样。"""
+    parts = _CJK_LIST_SEP_RE.split(tex.strip())
+    if len(parts) < 3 or not all(_looks_like_math(s) for s in parts[0::2]):
+        return None
+    return parts
 
 
 def _tex_to_mathml(tex: str, display: bool) -> str:
@@ -145,6 +164,11 @@ def _extract_math(text: str) -> tuple[str, dict[str, str]]:
         def _inline(m: re.Match) -> str:
             tex = m.group("a") or m.group("b")
             explicit = m.group("b") is not None      # \(…\) 是明确的数学标记
+            parts = _split_cjk_list(tex)
+            if parts is not None:                    # 顿号分隔列表：逐段转，分隔符留作正文
+                return "".join(
+                    p if i % 2 else _token(_tex_to_mathml(p, display=False))
+                    for i, p in enumerate(parts))
             if not explicit and not _looks_like_math(tex):
                 return m.group(0)
             return _token(_tex_to_mathml(tex, display=False))
@@ -204,6 +228,8 @@ def _topic_meta(items: list) -> list[str]:
             if isinstance(v, (int, float)):
                 sig[k] = max(sig.get(k, 0), v)
     meta: list[str] = []
+    if sig.get("oa_paper_cites", 0) >= 100:   # 经典级被引才展示（新论文个位数是噪声）
+        meta.append(f"被引 {int(sig['oa_paper_cites']):,}")
     if sig.get("oa_hindex"):
         meta.append(f"H {int(sig['oa_hindex'])}")
     if sig.get("hf_upvotes", 0) >= 5:
@@ -386,9 +412,11 @@ def export_web(conn, conf: AppConfig, data_dir: Path | None = None) -> dict:
                 # 多图排版板块：图库 ≥2 张时给 images，前端切多图版式
                 if bm["id"] in _MULTI_IMAGE_BOARDS and len(images) > 1:
                     entry["images"] = images
-                # 栏目标识（经典鉴赏）：thread_key 前缀约定 → 前端渲染栏目标签替代类型标签
+                # 栏目标识：thread_key 前缀约定 → 前端渲染栏目标签替代类型标签
+                # （艺术=经典鉴赏；学术=经典重读，2026-07-09）
                 if (t["thread_key"] or "").startswith("classic-"):
-                    entry["column"] = "经典鉴赏 CLASSIC"
+                    entry["column"] = ("经典重读 CLASSIC" if bm["id"] == "academic"
+                                       else "经典鉴赏 CLASSIC")
                 if has_body:
                     body_md, inline_used = _replace_body_images(
                         a["body_md"], img_map, images[0] if images else None)

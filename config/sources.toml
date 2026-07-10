@@ -1877,3 +1877,15 @@ fetch_interval_hours = 8760
 enabled = false             # 《经典鉴赏》栏目专用虚拟源：条目由主编提名时代码合成
                             # （url 指向作品的 Wikipedia 条目，取材抓正文当材料），
                             # 不走采集调度；此条只为前端来源名与 content 深度映射存在
+
+[[source]]
+id = "classic-paper"
+board = "academic"
+name = "经典重读 · arXiv"
+type = "rss"
+endpoint = "-"
+content = "abstract"
+fetch_interval_hours = 8760
+enabled = false             # 《经典重读》栏目专用虚拟源：条目由主编淡日提名时代码合成
+                            # （题录取自 arXiv API，全文在成题闸门期已落 paper_cache），
+                            # 不走采集调度；此条只为前端来源名与 content 深度映射存在

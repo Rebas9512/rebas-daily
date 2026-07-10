@@ -20,23 +20,23 @@ def _seed(conn):
     item_id = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " slot, needs_image, created_at, check_notes, reason) VALUES"
-        " ('2026-01-01','academic','测试专题','test-topic',?,'feature','headline',0,'x',"
+        " slot, created_at, check_notes, reason) VALUES"
+        " ('2026-01-01','academic','测试专题','test-topic',?,'feature','headline','x',"
         " ?, '理由')",
         (json.dumps([item_id]),
          json.dumps({"claims": [{"claim": "论断A", "support": 1}], "notes": "备注"})))
     topic_id = conn.execute("SELECT id FROM topics").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-01-01','academic','速览条目','brief-key',?,'brief',0,'x','十秒理由')",
+        " created_at, reason) VALUES"
+        " ('2026-01-01','academic','速览条目','brief-key',?,'brief','x','十秒理由')",
         (json.dumps([item_id]),))
     brief_id = conn.execute(
         "SELECT id FROM topics WHERE thread_key='brief-key'").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-01-01','academic','旧速览','brief-legacy',?,'brief',0,'x','老数据')",
+        " created_at, reason) VALUES"
+        " ('2026-01-01','academic','旧速览','brief-legacy',?,'brief','x','老数据')",
         (json.dumps([item_id]),))
     conn.execute(
         "INSERT INTO articles (topic_id, card_summary, body_md, image_refs, created_at)"
@@ -113,8 +113,8 @@ def test_export_multi_images(tmp_path):
         iid = conn.execute("SELECT max(id) FROM raw_items").fetchone()[0]
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-            " decision, needs_image, created_at, reason) VALUES"
-            " ('2026-01-01',?,?,?,?,'brief',0,'x','r')",
+            " decision, created_at, reason) VALUES"
+            " ('2026-01-01',?,?,?,?,'brief','x','r')",
             (board, key, key, json.dumps([iid])))
 
     gallery = ["https://img.x/1.jpg", "https://img.x/2.jpg",
@@ -142,7 +142,8 @@ def test_export_multi_images(tmp_path):
 
 
 def test_export_classic_column(tmp_path):
-    """栏目标识：thread_key 前缀 classic- → 前端拿到 column 标签。"""
+    """栏目标识：thread_key 前缀 classic- → 前端拿到 column 标签（按板块取名：
+    艺术=经典鉴赏，学术=经典重读）；经典级被引数进 meta。"""
     from rebas import db as database
     from rebas.config import load_config
     from rebas.render.export import export_web
@@ -156,9 +157,21 @@ def test_export_classic_column(tmp_path):
     iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " slot, needs_image, created_at, reason) VALUES"
-        " ('2026-01-01','art','鉴赏题','classic-x',?,'feature','regular',1,'x','r')",
+        " slot, created_at, reason) VALUES"
+        " ('2026-01-01','art','鉴赏题','classic-x',?,'feature','regular','x','r')",
         (json.dumps([iid]),))
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, kind, url, url_canonical, title,"
+        " fetched_at, signals) VALUES ('classic-paper','academic','paper',"
+        " 'http://arxiv.org/abs/1706.03762','http://arxiv.org/abs/1706.03762',"
+        " '论文','x','{\"oa_paper_cites\": 190000}')")
+    pid = conn.execute("SELECT max(id) FROM raw_items").fetchone()[0]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " slot, created_at, reason) VALUES"
+        " ('2026-01-01','academic','重读题','classic-1706-03762',?,'feature',"
+        " 'headline','x','r')",
+        (json.dumps([pid]),))
     conn.commit()
     conf = dataclasses.replace(load_config(), site_dir=tmp_path / "site")
     export_web(conn, conf, data_dir=tmp_path / "data")
@@ -167,6 +180,11 @@ def test_export_classic_column(tmp_path):
     feat = art["features"][0]
     assert feat["column"] == "经典鉴赏 CLASSIC"
     assert feat["source"] == "经典鉴赏 · Wikipedia"       # 虚拟源的来源名映射
+    aca = next(b for b in issue["boards"] if b["id"] == "academic")
+    hl = aca["headline"]
+    assert hl["column"] == "经典重读 CLASSIC"
+    assert hl["source"] == "经典重读 · arXiv"
+    assert "被引 190,000" in hl["meta"]                   # 经典级被引数展示
 
 
 def test_export_image_plan(tmp_path):
@@ -191,8 +209,8 @@ def test_export_image_plan(tmp_path):
         iid = conn.execute("SELECT max(id) FROM raw_items").fetchone()[0]
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-            " decision, needs_image, created_at, reason) VALUES"
-            " ('2026-01-01','design',?,?,?,'feature',0,'x','r')",
+            " decision, created_at, reason) VALUES"
+            " ('2026-01-01','design',?,?,?,'feature','x','r')",
             (key, key, json.dumps([iid])))
         tid = conn.execute("SELECT max(id) FROM topics").fetchone()[0]
         conn.execute(
@@ -268,3 +286,17 @@ def test_math_rendering():
 
     out = _md("$$\\undefined@@macro{$$")
     assert "<math" not in out and "<code>" in out          # 坏语法降级不炸
+
+    # 2026-07-09 漏网 case（energy-balancing 一文实录）：纯数字算式与顿号分隔的数字列表
+    out = _md("两项边际比例均约为 $0.69/0.309$。")
+    assert 'display="inline"' in out and "$" not in out    # 纯数字算式也是数学
+
+    out = _md("四格加权占比约为 $0.381、0.309、0.309、0$；")
+    assert out.count('display="inline"') == 4 and "$" not in out
+    assert "、" in out                                     # 顿号列表逐段转，分隔符留正文
+
+    out = _md("权重 $w_1、w_{pop}$ 两组。")
+    assert out.count('display="inline"') == 2              # 列表段本身带下标也接
+
+    out = _md("区间在 $5-$10 之间，约 $3,000。")
+    assert "<math" not in out                              # 货币区间首尾门槛防误伤

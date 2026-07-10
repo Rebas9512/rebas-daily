@@ -35,7 +35,6 @@ class Topic:
     slot: str | None = None        # headline | regular
     score: float | None = None
     target_length: int | None = None
-    needs_image: bool = False
     id: int | None = None
 
 

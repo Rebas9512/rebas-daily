@@ -45,7 +45,6 @@ CREATE TABLE IF NOT EXISTS topics (
     decision      TEXT NOT NULL,                     -- feature | brief | drop（专题/速览/弃）
     slot          TEXT,                              -- headline | regular
     target_length INTEGER,
-    needs_image   INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_topics_issue ON topics(issue_date, board);

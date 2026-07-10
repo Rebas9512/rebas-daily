@@ -190,8 +190,8 @@ def test_stage_research(tmp_path):
     def add_topic(key, decision):
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-            " decision, needs_image, created_at, reason) VALUES"
-            " ('2026-01-01','quant',?,?,?,?,0,'x','r')",
+            " decision, created_at, reason) VALUES"
+            " ('2026-01-01','quant',?,?,?,?,'x','r')",
             (key, key, json.dumps([iid]), decision))
         return conn.execute("SELECT id FROM topics WHERE thread_key=?",
                             (key,)).fetchone()["id"]
@@ -258,8 +258,8 @@ def test_stage_research_archive_followup(tmp_path):
     # 往期（07-01）报道过同一事件线，已有成文
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-07-01','quant','事件线首报','saga-key',?,'feature',0,'x','r')",
+        " created_at, reason) VALUES"
+        " ('2026-07-01','quant','事件线首报','saga-key',?,'feature','x','r')",
         (json.dumps([iid]),))
     past = conn.execute("SELECT id FROM topics WHERE issue_date='2026-07-01'"
                         ).fetchone()["id"]
@@ -267,8 +267,8 @@ def test_stage_research_archive_followup(tmp_path):
                  " VALUES (?,'旧卡','上期正文细节','x')", (past,))
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-07-05','quant','事件线新篇','saga-key',?,'brief',0,'x','r')",
+        " created_at, reason) VALUES"
+        " ('2026-07-05','quant','事件线新篇','saga-key',?,'brief','x','r')",
         (json.dumps([iid]),))
     cur = conn.execute("SELECT id FROM topics WHERE issue_date='2026-07-05'"
                        ).fetchone()["id"]
@@ -309,8 +309,8 @@ def test_checker_background_review(tmp_path):
     ]}
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, background) VALUES"
-        " ('2026-01-01','data','T','k','[]','brief',0,'x',?)",
+        " created_at, background) VALUES"
+        " ('2026-01-01','data','T','k','[]','brief','x',?)",
         (json.dumps(bg0, ensure_ascii=False),))
     tid = conn.execute("SELECT id FROM topics").fetchone()["id"]
     conn.commit()
@@ -388,8 +388,8 @@ def test_stage_research_facts(tmp_path):
     def add_topic(key, iid):
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-            " decision, needs_image, created_at, reason) VALUES"
-            " ('2026-07-06','tech',?,?,?,'brief',0,'x','r')",
+            " decision, created_at, reason) VALUES"
+            " ('2026-07-06','tech',?,?,?,'brief','x','r')",
             (key, key, json.dumps([iid])))
         return conn.execute("SELECT id FROM topics WHERE thread_key=?",
                             (key,)).fetchone()["id"]
@@ -454,8 +454,8 @@ def test_checker_background_review_facts(tmp_path):
     ]}
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, background) VALUES"
-        " ('2026-01-01','tech','T','k','[]','brief',0,'x',?)",
+        " created_at, background) VALUES"
+        " ('2026-01-01','tech','T','k','[]','brief','x',?)",
         (json.dumps(bg0, ensure_ascii=False),))
     tid = conn.execute("SELECT id FROM topics").fetchone()["id"]
     conn.commit()
@@ -599,8 +599,8 @@ class TestClassicColumn:
         conn = self._conn(tmp_path)
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-            " decision, needs_image, created_at) VALUES"
-            " ('2026-07-06','art','已有题','existing',?,'brief',0,'x')",
+            " decision, created_at) VALUES"
+            " ('2026-07-06','art','已有题','existing',?,'brief','x')",
             (json.dumps([1]),))
         conn.commit()
         monkeypatch.setattr(stages, "_nominate_classic",
@@ -625,7 +625,8 @@ def test_force_rewind_excludes_classic_item(tmp_path):
 
     conn = database.init_db(tmp_path / "t.sqlite")
     now = utcnow_iso()
-    for sid, url in (("dezeen", "http://x/a"), ("classic-art", "http://wiki/b")):
+    for sid, url in (("dezeen", "http://x/a"), ("classic-art", "http://wiki/b"),
+                     ("classic-paper", "http://arxiv/c")):
         conn.execute(
             "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
             " fetched_at, status) VALUES (?,?,?,?,'t',?,'selected')",
@@ -633,8 +634,8 @@ def test_force_rewind_excludes_classic_item(tmp_path):
     ids = [r["id"] for r in conn.execute("SELECT id FROM raw_items ORDER BY id")]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-        " decision, needs_image, created_at) VALUES"
-        " ('2026-01-01','art','题','k',?,'feature',0,'x')", (json.dumps(ids),))
+        " decision, created_at) VALUES"
+        " ('2026-01-01','art','题','k',?,'feature','x')", (json.dumps(ids),))
     conn.commit()
 
     _rewind_products(conn, load_config(), "2026-01-01", "editor", lambda *_: None)
@@ -642,6 +643,7 @@ def test_force_rewind_excludes_classic_item(tmp_path):
         "SELECT source_id, status FROM raw_items")}
     assert st["dezeen"] == "screened"        # 普通候选回粗筛池
     assert st["classic-art"] == "dropped"    # 栏目条目不回池
+    assert st["classic-paper"] == "dropped"  # 经典重读合成条目同样不回池
     assert conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
 
     _rewind_products(conn, load_config(), "2026-01-01", "screen", lambda *_: None)
@@ -649,6 +651,161 @@ def test_force_rewind_excludes_classic_item(tmp_path):
         "SELECT source_id, status FROM raw_items")}
     assert st["dezeen"] == "new"             # 窗口内候选重置待粗筛
     assert st["classic-art"] == "dropped"    # 栏目条目仍隔离在池外
+    assert st["classic-paper"] == "dropped"
+
+
+class TestClassicPaperColumn:
+    """《经典重读》栏目：淡日触发、原文闸门（题录核对+全文抓取）、跨期硬去重、
+    幂等、收尾批（refill）门控。"""
+
+    def _conn(self, tmp_path):
+        from rebas import db as database
+        return database.init_db(tmp_path / "t.sqlite")
+
+    def _conf(self, tmp_path):
+        import dataclasses
+
+        from rebas.config import load_config
+        return dataclasses.replace(load_config(), classic_paper_board="academic",
+                                   data_dir=tmp_path / "data")
+
+    def _profile(self):
+        return Profile(board="academic", name="学术", interests=())
+
+    @staticmethod
+    def _nom(paper="Attention Is All You Need", aid="1706.03762"):
+        import json
+        return json.dumps({"paper": paper, "authors": "Vaswani et al.",
+                           "year": "2017", "arxiv_id": aid,
+                           "title": "八年前，注意力改写了一切",
+                           "reason": "推理时代回望源头"}, ensure_ascii=False)
+
+    def test_nominate_success_and_idempotent(self, tmp_path, monkeypatch):
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        conf = self._conf(tmp_path)
+        monkeypatch.setattr(stages, "_arxiv_api_meta", lambda c, a: {
+            "title": "Attention Is All You Need",
+            "authors": "Ashish Vaswani, Noam Shazeer, Niki Parmar",
+            "summary": "The dominant sequence transduction models are based on...",
+            "published": "2017-06-12"})
+        monkeypatch.setattr(stages, "_fetch_arxiv_fulltext",
+                            lambda c, a, cap: "正文" * 2000)
+        monkeypatch.setattr(stages, "_openalex_classic_cites",
+                            lambda c, a: 190_000)
+        backend = _FakeBackend(self._nom())
+        s = stages._nominate_classic_paper(conn, conf, backend, "academic",
+                                           self._profile(), "2026-07-10")
+        assert "1706.03762" in s["classic_paper"]
+        t = conn.execute("SELECT * FROM topics").fetchone()
+        assert t["decision"] == "feature" and t["slot"] == "headline"  # 淡日头条
+        assert t["thread_key"] == "classic-1706-03762"
+        assert t["reason"].startswith("【经典重读栏目】")
+        assert t["target_length"] == stages.CLASSIC_PAPER_TARGET_LENGTH
+        item = conn.execute("SELECT * FROM raw_items").fetchone()
+        assert item["source_id"] == "classic-paper" and item["kind"] == "paper"
+        assert item["status"] == "selected"
+        assert item["title"] == "Attention Is All You Need"  # 题录以 arXiv API 为准
+        assert json.loads(item["signals"])["oa_paper_cites"] == 190_000
+        cache = conf.paper_cache_dir / f"{item['id']}.txt"
+        assert cache.exists()                    # 全文在闸门期已落缓存，fetch 不双抓
+        # 幂等：已有栏目选题即跳过（backend 无剩余输出，再调用会炸 → 证明没调）
+        assert stages._nominate_classic_paper(
+            conn, conf, backend, "academic", self._profile(),
+            "2026-07-10")["classic_paper"] == "已有栏目选题"
+
+    def test_not_triggered_on_feature_day(self, tmp_path):
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, created_at) VALUES"
+            " ('2026-07-10','academic','正常专题','k',?,'feature','x')",
+            (json.dumps([1]),))
+        conn.commit()
+        s = stages._nominate_classic_paper(conn, self._conf(tmp_path), None,
+                                           "academic", self._profile(), "2026-07-10")
+        assert s["classic_paper"].startswith("非淡日")
+
+    def test_fulltext_gate_retry_then_giveup(self, tmp_path, monkeypatch):
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_arxiv_api_meta", lambda c, a: {
+            "title": "Generative Adversarial Networks", "authors": "",
+            "summary": "s", "published": "2014-06-10"})
+        monkeypatch.setattr(stages, "_fetch_arxiv_fulltext", lambda c, a, cap: None)
+        nom = self._nom("Generative Adversarial Networks", "1406.2661")
+        backend = _FakeBackend(nom, nom, nom)
+        s = stages._nominate_classic_paper(conn, self._conf(tmp_path), backend,
+                                           "academic", self._profile(), "2026-07-10")
+        assert s["classic_paper"].startswith("放弃")
+        assert "拿不到全文" in backend.prompts[1]     # 重试提示带上不可用原因
+        assert conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM raw_items").fetchone()[0] == 0
+
+    def test_title_mismatch_rejected_before_fetch(self, tmp_path, monkeypatch):
+        """ID 合法但指向别的论文：题录核对不上 → 提名作废且不抓全文
+        （这是比抓不到更危险的失败模式——writer 会精读错误原文）。"""
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_arxiv_api_meta", lambda c, a: {
+            "title": "A Completely Different Paper", "authors": "",
+            "summary": "s", "published": "2016-01-01"})
+        fetched = []
+        monkeypatch.setattr(stages, "_fetch_arxiv_fulltext",
+                            lambda c, a, cap: fetched.append(a) or "x" * 9999)
+        backend = _FakeBackend(self._nom(), self._nom(), self._nom())
+        s = stages._nominate_classic_paper(conn, self._conf(tmp_path), backend,
+                                           "academic", self._profile(), "2026-07-10")
+        assert s["classic_paper"].startswith("放弃") and not fetched
+        assert "题录核对不上" in backend.prompts[1]
+
+    def test_cross_issue_dedup_hard_guard(self, tmp_path):
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, created_at) VALUES ('2026-07-01','academic','往期栏目',"
+            " 'classic-1706-03762',?,'feature','x')", (json.dumps([1]),))
+        conn.commit()
+        backend = _FakeBackend(self._nom(), self._nom(), self._nom())
+        s = stages._nominate_classic_paper(conn, self._conf(tmp_path), backend,
+                                           "academic", self._profile(), "2026-07-10")
+        assert s["classic_paper"].startswith("放弃")
+        assert "已精读过" in backend.prompts[1]
+
+    def test_stage_editor_gates_on_refill(self, tmp_path, monkeypatch):
+        import dataclasses
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        conf = dataclasses.replace(self._conf(tmp_path), refill_min_topics=1)
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, created_at) VALUES"
+            " ('2026-07-10','academic','速览','k',?,'brief','x')", (json.dumps([1]),))
+        conn.commit()
+        monkeypatch.setattr(stages, "_nominate_classic_paper",
+                            lambda *a, **k: {"classic_paper": "提名成功桩"})
+        s = stages.stage_editor(conn, conf, None, "academic", self._profile(),
+                                "学术", "2026-07-10")             # 非收尾批
+        assert "classic_paper" not in s
+        s = stages.stage_editor(conn, conf, None, "academic", self._profile(),
+                                "学术", "2026-07-10", refill=True)  # 收尾批触发
+        assert s["classic_paper"] == "提名成功桩"
 
 
 def _writer_brief_conn(tmp_path, summary="这是摘要，比较薄"):
@@ -664,8 +821,8 @@ def _writer_brief_conn(tmp_path, summary="这是摘要，比较薄"):
     iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-01-01','academic','速览题','k',?,'brief',0,'x','r')",
+        " created_at, reason) VALUES"
+        " ('2026-01-01','academic','速览题','k',?,'brief','x','r')",
         (json.dumps([iid]),))
     conn.commit()
     return conn, iid
@@ -730,8 +887,8 @@ def _writer_design_conn(tmp_path):
     iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-01-01','design','设计题','k',?,'feature',0,'x','r')",
+        " created_at, reason) VALUES"
+        " ('2026-01-01','design','设计题','k',?,'feature','x','r')",
         (json.dumps([iid]),))
     conn.commit()
     return conn
@@ -755,8 +912,8 @@ def test_stage_fetch_gallery_refetch(tmp_path, monkeypatch):
     iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
     conn.execute(
         "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
-        " needs_image, created_at, reason) VALUES"
-        " ('2026-01-01','art','题','k',?,'brief',0,'x','r')", (json.dumps([iid]),))
+        " created_at, reason) VALUES"
+        " ('2026-01-01','art','题','k',?,'brief','x','r')", (json.dumps([iid]),))
     conn.commit()
 
     class _FakeResp:
@@ -907,8 +1064,8 @@ def test_stage_writer_shared_paper_cache_refcount(tmp_path):
     for key, dec in (("b-brief", "brief"), ("f-feat", "feature")):
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
-            " decision, needs_image, created_at, reason) VALUES"
-            " ('2026-01-01','academic',?,?,?,?,0,'x','r')",
+            " decision, created_at, reason) VALUES"
+            " ('2026-01-01','academic',?,?,?,?,'x','r')",
             (key, key, json.dumps([xid]), dec))
     conn.commit()
 

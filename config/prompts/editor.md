@@ -19,9 +19,9 @@ ${existing_block}
 ${recent_threads_block}
 
 ## 只输出 JSON，格式：
-{"topics": [{"title": "中文专题标题", "thread_key": "...", "item_ids": [数字], "decision": "feature|brief", "slot": "headline|regular", "target_length": 数字或null, "needs_image": true/false, "update_of_thread": null, "reason": "一句话入选理由"}], "notes": "当日编辑判断备忘（中文）"}
+{"topics": [{"title": "中文专题标题", "thread_key": "...", "item_ids": [数字], "decision": "feature|brief", "slot": "headline|regular", "target_length": 数字或null, "update_of_thread": null, "reason": "一句话入选理由"}], "notes": "当日编辑判断备忘（中文）"}
 
-brief 条目的 slot/target_length/needs_image 填 null。item_ids 只能使用候选列表里出现过的编号。
+brief 条目的 slot/target_length 填 null。item_ids 只能使用候选列表里出现过的编号。
 
 ## 候选条目（[id] 粗筛分 深度 类型 | 标题 | 摘要 | 来源 | 信号）
 ${items_block}
