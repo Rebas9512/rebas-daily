@@ -68,7 +68,7 @@ def collect(
     lane = "慢车道" if paced else ""
     typer.echo(f"{lane}采集完成：{len(ran)} 个源" + (f"（{skipped_srcs} 个类型未支持，跳过）" if skipped_srcs else ""))
     for s in ran:
-        mark = {"ok": "✓", "304": "=", "error": "✗"}.get(s.status, "?")
+        mark = {"ok": "✓", "304": "=", "error": "✗", "fallback": "△"}.get(s.status, "?")
         typer.echo(f"  {mark} {s.source_id:22s} {s.counts_line()}")
     total_new = sum(s.new + s.revived for s in ran)
     errors = sum(1 for s in ran if s.status == "error")

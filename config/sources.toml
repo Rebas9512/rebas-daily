@@ -181,6 +181,8 @@ content = "headline"
 fetch_interval_hours = 11   # 按时间+分数查询，50 条窗口实测覆盖 ~44h，不依赖抓取频率
 prefilter = true            # 全类目，按画像关键词过滤 AI/ML 相关
 enabled = true
+fallback_type = "rss"       # 备用通道（2026-07-09，Algolia 间歇 400 一天半）：hnrss.org
+fallback_endpoint = "https://hnrss.org/newest?points=150&count=50"  # 同阈值，双端冒烟 200
 
 [[source]]
 id = "gh-trending-daily"
@@ -245,6 +247,8 @@ content = "headline"
 fetch_interval_hours = 11
 enabled = true              # ~3-5 条/天；与 trending 榜互补（发布日即现身，不等攒星）；
                             # 项目 URL 与 gh_trending 按 canonical 自然合并信号
+fallback_type = "rss"       # 备用通道（2026-07-09）：hnrss.org 同阈值 Show HN 流
+fallback_endpoint = "https://hnrss.org/show?points=100&count=30"
 
 # —— 第二轮补测新增（2026-07-03）——
 

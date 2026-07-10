@@ -40,7 +40,7 @@ MAX_WORKERS = 8
 @dataclass
 class SourceStats:
     source_id: str
-    status: str = "ok"          # ok | 304 | error | unsupported
+    status: str = "ok"          # ok | 304 | error | fallback | unsupported
     new: int = 0
     merged: int = 0
     revived: int = 0
@@ -48,6 +48,7 @@ class SourceStats:
     filtered_out: int = 0       # 预筛丢弃（不入库）
     skipped: int = 0            # gnews 预算内未解析等
     error: str | None = None
+    redirect: str | None = None  # 端点被重定向到的最终 URL（提示更新配置，dieline 类）
 
     def counts_line(self) -> str:
         if self.status == "error":
@@ -64,7 +65,12 @@ class SourceStats:
             parts.append(f"预筛除{self.filtered_out}")
         if self.skipped:
             parts.append(f"暂缓{self.skipped}")
-        return " ".join(parts)
+        line = " ".join(parts)
+        if self.status == "fallback":
+            line = f"备用通道供给（主通道 {self.error}）: {line}"
+        if self.redirect:
+            line += f"（⚠ 重定向 → {self.redirect}，建议更新 endpoint 省一跳）"
+        return line
 
 
 def _is_due(conn, source: Source, now: datetime) -> bool:
@@ -73,6 +79,21 @@ def _is_due(conn, source: Source, now: datetime) -> bool:
         return True
     last = datetime.fromisoformat(st["last_fetch_at"])
     return now - last >= timedelta(hours=source.fetch_interval_hours)
+
+
+def _error_backoff_hours(interval: float, streak: int) -> float:
+    """错误重试节律梯（回拨小时数，写进 last_fetch_at 让下次到期提前）：
+    - 首错回拨整间隔 → 下一轮 collect 立即重试。偶发故障（Algolia 间歇 400 等）
+      不再受批次网格错位摆布（07-09 实测：减半节律差 30 分钟错过批5，报错源
+      白躺 9.5 小时等批1）；
+    - 连败（2~7）回拨半间隔 → 现行减半节律，比正常周期更勤地探测恢复；
+    - 长期死源（≥8 连败，约两天）不回拨 → 恢复正常间隔，不高频空打，
+      admin 红牌 + 连败计数已经把问题亮出来了。"""
+    if streak <= 1:
+        return interval
+    if streak < 8:
+        return interval / 2
+    return 0.0
 
 
 def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
@@ -167,16 +188,30 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
             stats = SourceStats(s.id)
             result = fetched[s.id]
             if isinstance(result, Exception):
-                stats.status = "error"
                 stats.error = f"{type(result).__name__}: {str(result)[:120]}"
-                # 出错后下次到期时间减半：偶发故障不用空等满整个间隔
-                retry_at = (now - timedelta(hours=s.fetch_interval_hours / 2))
-                db.set_fetch_state(conn, s.id, etag=None, last_modified=None,
-                                   last_fetch_at=retry_at.isoformat(timespec="seconds"),
-                                   last_status="error")
-                conn.commit()
-                all_stats.append(stats)
-                continue
+                prev = db.get_fetch_state(conn, s.id)
+                streak = ((prev["error_streak"] or 0) if prev else 0) + 1
+                # 备用通道：主通道抛错同轮改走备用端点——供给不断、病历（连败计数）照记；
+                # 备用轮不写 etag（conditional GET 状态不跨端点）
+                if s.fallback_endpoint:
+                    try:
+                        fb = fetch_url(client, s.fallback_endpoint)
+                        result = fb if fb.status != 304 else None
+                    except Exception:  # noqa: BLE001 —— 备用也挂 → 走正常错误路径
+                        result = None
+                    if isinstance(result, FetchResult):
+                        stats.status = "fallback"
+                if stats.status != "fallback":
+                    stats.status = "error"
+                    # 重试节律梯：回拨 last_fetch_at 让下次到期提前（见 _error_backoff_hours）
+                    retry_at = now - timedelta(hours=_error_backoff_hours(
+                        s.fetch_interval_hours, streak))
+                    db.set_fetch_state(conn, s.id, etag=None, last_modified=None,
+                                       last_fetch_at=retry_at.isoformat(timespec="seconds"),
+                                       last_status="error", error_streak=streak)
+                    conn.commit()
+                    all_stats.append(stats)
+                    continue
             if result.status == 304:
                 stats.status = "304"
                 db.set_fetch_state(conn, s.id, etag=result.etag,
@@ -186,28 +221,39 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
                 conn.commit()
                 all_stats.append(stats)
                 continue
+            on_fallback = stats.status == "fallback"
+            parser_type = (s.fallback_type or s.type) if on_fallback else s.type
             try:
-                items, extra = PARSERS[s.type](
+                items, extra = PARSERS[parser_type](
                     s, result.data,
                     matcher=matchers.get(s.board),
                     conn=conn, client=client,
                 )
-                if s.type in ("gnews_rss",):
+                if parser_type in ("gnews_rss",):
                     stats.skipped = extra
                 else:
                     stats.filtered_out = extra
-                revive = REVIVE_DAYS.get(s.type)
+                revive = REVIVE_DAYS.get(parser_type)
                 for it in items:
                     outcome = db.insert_item(conn, it, revive_days=revive)
                     setattr(stats, outcome, getattr(stats, outcome) + 1)
-                # gnews 有暂缓条目时不落盘 etag：否则下轮 304 直接跳过解析，
-                # 暂缓条目要等 feed 内容变化才有机会重试（预算饿死的另一半）
-                keep_cond = not (s.type == "gnews_rss" and stats.skipped > 0)
-                db.set_fetch_state(conn, s.id,
-                                   etag=result.etag if keep_cond else None,
-                                   last_modified=result.last_modified if keep_cond else None,
-                                   last_fetch_at=now.isoformat(timespec="seconds"),
-                                   last_status="ok")
+                if on_fallback:
+                    db.set_fetch_state(conn, s.id, etag=None, last_modified=None,
+                                       last_fetch_at=now.isoformat(timespec="seconds"),
+                                       last_status="fallback", error_streak=streak)
+                else:
+                    # 端点被重定向（dieline 类：缺尾斜杠每轮吃一跳 301 易触发限流）→
+                    # 日志提示更新配置；正常入库不受影响
+                    if result.final_url and result.final_url != s.endpoint:
+                        stats.redirect = result.final_url
+                    # gnews 有暂缓条目时不落盘 etag：否则下轮 304 直接跳过解析，
+                    # 暂缓条目要等 feed 内容变化才有机会重试（预算饿死的另一半）
+                    keep_cond = not (s.type == "gnews_rss" and stats.skipped > 0)
+                    db.set_fetch_state(conn, s.id,
+                                       etag=result.etag if keep_cond else None,
+                                       last_modified=result.last_modified if keep_cond else None,
+                                       last_fetch_at=now.isoformat(timespec="seconds"),
+                                       last_status="ok")
             except Exception as exc:  # noqa: BLE001 —— 解析失败同样不中断
                 stats.status = "error"
                 stats.error = f"{type(exc).__name__}: {str(exc)[:120]}"

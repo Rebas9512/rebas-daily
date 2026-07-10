@@ -19,8 +19,8 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 
 ## 结构速览
 
-- `config/config.toml` —— 全局配置（llm 后端与角色型号、出刊参数；`site_keep_days=7` 往期完整页面保留一周，更早进归档存目——渲染期策略，调大重渲染可找回；`classic_board="art"` =《经典鉴赏》栏目：该板块每日一件经典作品，周一至五油画/周末自由，classic 角色联网提名 + Wikipedia 直图闸门，拿不到图换作品重提最多 3 次，""=关闭；栏目规则文本在 `config/prompts/editor_classic.md` 可编辑）
-- `config/sources.toml` —— 信息源定义（enabled 开关随时增删）
+- `config/config.toml` —— 全局配置（llm 后端与角色型号、出刊参数；`site_keep_days=7` 往期完整页面保留一周，更早进归档存目——渲染期策略，调大重渲染可找回；`classic_board="art"` =《经典鉴赏》栏目：该板块每日一件经典作品，周一至五油画/周末自由，classic 角色联网提名 + Wikipedia 直图闸门，拿不到图换作品重提最多 3 次，""=关闭；栏目规则文本在 `config/prompts/editor_classic.md` 可编辑；`classic_paper_board="academic"` =《经典重读》栏目：淡日供给——收尾批（--refill）该板块零专题时，classic 角色提名一篇突破性经典论文，闸门=arXiv API 题录核对 + 真实抓到全文（落 paper_cache，fetch 不双抓），拿不到换一篇最多 3 次，成题即淡日头条、全文精读，""=关闭；规则文本在 `config/prompts/editor_classic_paper.md`）
+- `config/sources.toml` —— 信息源定义（enabled 开关随时增删；可选 `fallback_type`/`fallback_endpoint` = 备用通道，主通道抓取出错同轮改走备用端点、解析器可跨类型复用，HN 两源→hnrss.org 是首例）。**报错自修复**（2026-07-09）：错误重试节律梯——首错下一轮 collect 立即重试、连败 2~7 半间隔加密探测、≥8 回正常间隔；`fetch_state.error_streak` 连败计数进 admin 徽章（`error ×N`）；endpoint 被重定向时日志提示更新配置（dieline 301 类）
 - `config/profiles/*.toml` —— 板块兴趣画像；`[reader]` 段 = 读者画像与**背调切入角度**（assumed=已掌握 / explain=要铺垫）：技术板块角度=概念解释，商业/艺术=背景故事，调角度直接改画像文本
 - `config/prompts/*.md` —— agent 提示词模板（string.Template `$` 占位符，改文风不动代码）；**style.md = 全刊文风单点调节**；researcher*.md = 背景调查（含 30 天往期查阅两轮协议 + **调查补充**：仅标题级的新闻/repo 选题、以及原文精读拿不到的论文（付费墙顶刊无预印本，以取材期缓存为准）标注【需调查补充】，背调联网搜索补事实细节，`research_facts_max=0` 关闭；搜索走 `[llm] search_roles`，须写在 `[llm.roles]` 表头之前）；checker_background.md = 背景审核（概念宁删勿留，facts 按新闻口径放宽）
 - `src/rebas/collect/` —— 十二类采集器（rss/gnews/arXiv/HF×2/HN/GH/期刊×2/Reddit/X 镜像/Truth 归档；HTTP 用 urllib 封装，**勿换 httpx**——Cloudflare 按 TLS 指纹拦；新源冒烟用生产同款客户端，curl 通过≠urllib 可用）

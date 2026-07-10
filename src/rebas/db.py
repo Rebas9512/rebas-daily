@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS fetch_state (
     etag          TEXT,
     last_modified TEXT,
     last_fetch_at TEXT,
-    last_status   TEXT
+    last_status   TEXT,                                -- ok | 304 | error | parse_error | fallback
+    error_streak  INTEGER NOT NULL DEFAULT 0           -- 主通道连败计数（ok/304 归零）
 );
 
 CREATE TABLE IF NOT EXISTS gnews_cache (               -- Google News 跳转 URL → 真实 URL
@@ -130,6 +131,8 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     _ensure_column(conn, "raw_items", "image_urls", "TEXT")  # JSON string[] 正文图库
     # 2026-07-07 撰写期图片审选：{"kept": [[编号, url], ...]}，NULL=未审选（回退旧行为）
     _ensure_column(conn, "articles", "image_plan", "TEXT")
+    # 2026-07-09 信息源自修复：连败计数（重试节律梯与 admin 病历展示的依据）
+    _ensure_column(conn, "fetch_state", "error_streak", "INTEGER NOT NULL DEFAULT 0")
     conn.execute(  # 并发 publish 兜底：同期同板块同事件线只允许一条
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_topics_issue_thread"
         " ON topics(issue_date, board, thread_key)")
@@ -242,14 +245,16 @@ def get_fetch_state(conn: sqlite3.Connection, source_id: str) -> sqlite3.Row | N
 
 
 def set_fetch_state(conn: sqlite3.Connection, source_id: str, *, etag: str | None,
-                    last_modified: str | None, last_fetch_at: str, last_status: str) -> None:
+                    last_modified: str | None, last_fetch_at: str, last_status: str,
+                    error_streak: int = 0) -> None:
     conn.execute(
-        "INSERT INTO fetch_state (source_id, etag, last_modified, last_fetch_at, last_status)"
-        " VALUES (?,?,?,?,?)"
+        "INSERT INTO fetch_state (source_id, etag, last_modified, last_fetch_at,"
+        " last_status, error_streak)"
+        " VALUES (?,?,?,?,?,?)"
         " ON CONFLICT(source_id) DO UPDATE SET etag=excluded.etag,"
         " last_modified=excluded.last_modified, last_fetch_at=excluded.last_fetch_at,"
-        " last_status=excluded.last_status",
-        (source_id, etag, last_modified, last_fetch_at, last_status),
+        " last_status=excluded.last_status, error_streak=excluded.error_streak",
+        (source_id, etag, last_modified, last_fetch_at, last_status, error_streak),
     )
 
 

@@ -44,6 +44,9 @@ class Source:
     pool_days: int = 0        # 顶刊池：>0 时该源候选在出刊窗保留 N 天（落选不清扫，见 stages._window_clause）
     pace_seconds: int = 0     # 慢车道：>0 = 该源限速严（Reddit ~1请求/分钟/IP），常规 collect 跳过，
                               # 由 collect --paced（专用 cron）串行慢抓、源间隔此秒数
+    fallback_type: str = ""       # 备用通道（2026-07-09 自修复兜底）：主通道抓取出错时
+    fallback_endpoint: str = ""   # 同轮改走备用端点（解析器按 fallback_type，缺省同主通道）；
+                                  # 供给不断、主通道病历（error_streak）照记。""=无备用
 
 
 @dataclass(frozen=True)

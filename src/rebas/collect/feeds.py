@@ -77,8 +77,12 @@ def _entry_image(entry, base_url: str = "") -> str | None:
 
 
 def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
-               client: HttpClient, **_) -> tuple[list[RawItem], int]:
-    """解析 RSS/Atom feed。返回 (items, 跳过数)。gnews 源顺带解析真实 URL。"""
+               client: HttpClient, matcher=None, **_) -> tuple[list[RawItem], int]:
+    """解析 RSS/Atom feed。返回 (items, 跳过+预筛数)。gnews 源顺带解析真实 URL。
+
+    prefilter 支持（2026-07-09）：全类目源走 RSS 备用通道时按画像关键词预筛
+    （hn-frontpage → hnrss.org 场景）。注意 gnews 标题此处尚未去媒体名后缀，
+    gnews+prefilter 组合（目前不存在）会拿后缀参与匹配。"""
     parsed = feedparser.parse(data)
     items: list[RawItem] = []
     skipped = 0
@@ -87,6 +91,9 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
         link = (entry.get("link") or "").strip()
         title = strip_html(entry.get("title", "")).strip()
         if not link or not title:
+            continue
+        if source.prefilter and matcher is not None and not matcher.matches(title):
+            skipped += 1
             continue
         author = entry.get("author")
 

@@ -325,9 +325,10 @@ async function renderStatus() {
       ${s.sources.map(x=>{
         const ageN = staleH(x.last_new_at), ageF = staleH(x.last_fetch_at);
         const bad = (x.last_status && !['ok','304'].includes(x.last_status)) || ageN===null || ageN>168;
+        const streak = x.error_streak>1 ? ` ×${x.error_streak}` : '';   // 主通道连败计数（fallback 期间也累计）
         return `<tr><td>${esc(x.name)}</td><td class="mono" style="font-size:10px">${esc(x.board)}</td>
           <td class="num">${ageF===null?'—':ageF+'h 前'}</td><td class="num">${ageN===null?'从未':ageN+'h 前'}</td>
-          <td><span class="pill ${bad?'pill--warn':'pill--ok'}">${esc(x.last_status==='304'?'ok · 无更新':(x.last_status||'?'))}</span></td></tr>`;
+          <td><span class="pill ${bad?'pill--warn':'pill--ok'}">${esc((x.last_status==='304'?'ok · 无更新':(x.last_status||'?'))+streak)}</span></td></tr>`;
       }).join('')}</table></div></section>`;
   $('#sec-x-3').innerHTML = `<button class="btn btn--ghost" id="rl">刷新</button>`;
   const loadLog = async () => {

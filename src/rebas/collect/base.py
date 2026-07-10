@@ -130,6 +130,7 @@ class FetchResult:
     data: bytes = b""
     etag: str | None = None
     last_modified: str | None = None
+    final_url: str = ""             # 跟随重定向后的最终 URL（≠请求 URL 时提示更新 endpoint）
 
 
 @dataclass
@@ -217,6 +218,7 @@ def fetch_url(client: HttpClient, url: str, *, etag: str | None = None,
                 data=resp.content.lstrip(),   # 部分源 feed 开头有空白
                 etag=resp.headers.get("ETag"),
                 last_modified=resp.headers.get("Last-Modified"),
+                final_url=resp.url or "",
             )
         except urllib.error.HTTPError as exc:
             if exc.code == 304:

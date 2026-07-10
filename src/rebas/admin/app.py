@@ -130,12 +130,13 @@ def status(request: Request):
         last_new = {r["source_id"]: r["m"] for r in conn.execute(
             "SELECT source_id, max(fetched_at) m FROM raw_items GROUP BY source_id")}
         fstate = {r["source_id"]: dict(r) for r in conn.execute(
-            "SELECT source_id, last_fetch_at, last_status FROM fetch_state")}
+            "SELECT * FROM fetch_state")}
         sources = [{
             "id": s.id, "board": s.board, "name": s.name,
             "last_new_at": last_new.get(s.id),
             "last_fetch_at": fstate.get(s.id, {}).get("last_fetch_at"),
             "last_status": fstate.get(s.id, {}).get("last_status"),
+            "error_streak": fstate.get(s.id, {}).get("error_streak") or 0,
         } for s in load_sources(enabled_only=True)]
     finally:
         conn.close()

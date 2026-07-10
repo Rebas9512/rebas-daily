@@ -515,3 +515,131 @@ def test_truth_rss_parser():
     assert items[0].title.startswith("Tariffs on semiconductor imports")
     assert items[0].content_hash != items[1].content_hash   # 换标题后哈希重算
     assert items[1].title.startswith("[No Title]")          # 无正文保持原样
+
+
+# ---- 信息源自修复兜底（2026-07-09）----
+
+RSS_FALLBACK_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>HN RSS</title>
+<item><title>New LLM agent framework released</title>
+  <link>https://example.com/llm-agent</link>
+  <pubDate>Thu, 09 Jul 2026 12:00:00 GMT</pubDate></item>
+<item><title>10 Best Coffee Shops in Berlin</title>
+  <link>https://example.com/coffee</link>
+  <pubDate>Thu, 09 Jul 2026 11:00:00 GMT</pubDate></item>
+</channel></rss>"""
+
+
+def test_error_backoff_ladder():
+    """重试节律梯：首错回拨整间隔（下一轮 collect 立即重试，不受批次网格错位摆布）
+    → 连败半间隔加密探测 → 长期死源（≥8）回正常间隔不高频空打。"""
+    from rebas.collect.runner import _error_backoff_hours
+
+    assert _error_backoff_hours(11, 1) == 11
+    assert _error_backoff_hours(11, 2) == 5.5
+    assert _error_backoff_hours(11, 7) == 5.5
+    assert _error_backoff_hours(11, 8) == 0.0
+
+
+def test_parse_feed_prefilter():
+    """RSS 通道预筛（备用通道场景）：prefilter 源按画像关键词过滤，非 prefilter 不受影响。"""
+    from rebas.collect.base import KeywordMatcher
+    from rebas.collect.feeds import parse_feed
+    from rebas.config import Interest, Profile
+
+    matcher = KeywordMatcher(Profile(board="tech", name="t", interests=(
+        Interest(name="AI", weight=5, keywords=("LLM", "agent")),)))
+    src = make_source(id="hn", type="rss", prefilter=True)
+    items, skipped = parse_feed(src, RSS_FALLBACK_FIXTURE, conn=None, client=None,
+                                matcher=matcher)
+    assert [i.title for i in items] == ["New LLM agent framework released"]
+    assert skipped == 1
+    items, skipped = parse_feed(make_source(id="hn2", type="rss"),
+                                RSS_FALLBACK_FIXTURE, conn=None, client=None,
+                                matcher=matcher)
+    assert len(items) == 2 and skipped == 0
+
+
+def test_runner_fallback_channel(tmp_path, monkeypatch):
+    """备用通道：主通道抛错同轮改走备用端点（解析器按 fallback_type）——条目照常
+    入库、last_status=fallback、连败计数照记；主通道恢复后 ok 归零 + 重定向提示。"""
+    import dataclasses
+    import urllib.error
+
+    from rebas import db as database
+    from rebas.collect import runner
+    from rebas.collect.base import FetchResult
+    from rebas.config import Interest, Profile, load_config
+
+    src = make_source(id="hn-t", board="tech", type="hn_algolia",
+                      endpoint="https://primary/api", prefilter=True,
+                      fallback_type="rss", fallback_endpoint="https://fallback/rss")
+    profile = Profile(board="tech", name="科技", interests=(
+        Interest(name="AI", weight=5, keywords=("LLM", "agent")),))
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    monkeypatch.setattr(runner, "load_config", lambda: conf)
+    monkeypatch.setattr(runner, "load_sources", lambda enabled_only=False: [src])
+    monkeypatch.setattr(runner, "load_profile", lambda b: profile)
+
+    def fake_fetch(client, url, *, etag=None, last_modified=None, retries=2):
+        if url == "https://primary/api":
+            raise urllib.error.HTTPError(url, 400, "Bad Request", None, None)
+        return FetchResult(status=200, data=RSS_FALLBACK_FIXTURE)
+    monkeypatch.setattr(runner, "fetch_url", fake_fetch)
+
+    s = {x.source_id: x for x in runner.run_collect()}["hn-t"]
+    assert s.status == "fallback" and s.new == 1 and s.filtered_out == 1
+    assert "备用通道" in s.counts_line()
+    conn = database.connect(conf.db_path)
+    st = conn.execute("SELECT * FROM fetch_state WHERE source_id='hn-t'").fetchone()
+    assert st["last_status"] == "fallback" and st["error_streak"] == 1
+    conn.close()
+
+    # 主通道恢复（带一跳重定向）→ ok、连败归零、日志提示更新 endpoint
+    monkeypatch.setattr(runner, "fetch_url", lambda client, url, **kw: FetchResult(
+        status=200, data=b'{"hits": []}', final_url="https://primary/api/"))
+    s = {x.source_id: x for x in runner.run_collect(force=True)}["hn-t"]
+    assert s.status == "ok" and s.redirect == "https://primary/api/"
+    assert "建议更新 endpoint" in s.counts_line()
+    conn = database.connect(conf.db_path)
+    st = conn.execute("SELECT * FROM fetch_state WHERE source_id='hn-t'").fetchone()
+    assert st["last_status"] == "ok" and st["error_streak"] == 0
+    conn.close()
+
+
+def test_error_streak_accumulates_and_fast_retry(tmp_path, monkeypatch):
+    """无备用通道的源：连败计数累计；首错后 last_fetch_at 回拨整间隔 → 立即再到期。"""
+    import dataclasses
+    import urllib.error
+    from datetime import datetime, timezone
+
+    from rebas import db as database
+    from rebas.collect import runner
+    from rebas.config import Interest, Profile, load_config
+
+    src = make_source(id="s1", board="tech", type="rss",
+                      endpoint="https://dead/feed", fetch_interval_hours=11)
+    profile = Profile(board="tech", name="科技", interests=(
+        Interest(name="AI", weight=5, keywords=("LLM",)),))
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    monkeypatch.setattr(runner, "load_config", lambda: conf)
+    monkeypatch.setattr(runner, "load_sources", lambda enabled_only=False: [src])
+    monkeypatch.setattr(runner, "load_profile", lambda b: profile)
+
+    def dead_fetch(client, url, **kw):
+        raise urllib.error.HTTPError(url, 500, "Internal", None, None)
+    monkeypatch.setattr(runner, "fetch_url", dead_fetch)
+
+    runner.run_collect()
+    conn = database.connect(conf.db_path)
+    st = conn.execute("SELECT * FROM fetch_state WHERE source_id='s1'").fetchone()
+    assert st["error_streak"] == 1
+    # 首错：回拨整间隔 → 不等下个周期，下一轮 collect 立即到期重试
+    assert runner._is_due(conn, src, datetime.now(timezone.utc))
+    conn.close()
+
+    runner.run_collect()          # 第二轮（已到期）再失败
+    conn = database.connect(conf.db_path)
+    st = conn.execute("SELECT * FROM fetch_state WHERE source_id='s1'").fetchone()
+    assert st["error_streak"] == 2
+    conn.close()
