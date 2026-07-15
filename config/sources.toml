@@ -488,24 +488,29 @@ enabled = true
 [[source]]
 id = "bloomberg-markets"
 board = "finance"
-name = "Bloomberg Markets"
-type = "rss"
-endpoint = "https://feeds.bloomberg.com/markets/news.rss"
+name = "Bloomberg Markets (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:bloomberg.com+markets&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 4
 paywall = true
-enabled = true
+enabled = true              # 2026-07-14 15:00 CDT 起 feeds.bloomberg.com 全路径 404（双端×双指纹
+                            # 确诊：本机+VPS、urllib+curl 全 404，9 板块路径+atom 全灭、根路径 403，
+                            # 无官方公告=悄悄下线）→ 切 gnews 兜底（同 reuters/anthropic 剧本）。
+                            # 复活条件：https://feeds.bloomberg.com/markets/news.rss 复活可切回 rss
 
 [[source]]
 id = "bloomberg-tech"
 board = "tech"
-name = "Bloomberg Technology"
-type = "rss"
-endpoint = "https://feeds.bloomberg.com/technology/news.rss"
+name = "Bloomberg Technology (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:bloomberg.com+technology&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 4
 paywall = true
-enabled = true
+enabled = true              # 2026-07-14 15:00 CDT 起 feeds.bloomberg.com 全路径 404（确诊过程同
+                            # bloomberg-markets 注释）→ 切 gnews 兜底。
+                            # 复活条件：https://feeds.bloomberg.com/technology/news.rss 复活可切回 rss
 
 [[source]]
 id = "wsj-tech"
