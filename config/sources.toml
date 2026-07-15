@@ -947,7 +947,11 @@ endpoint = "https://www.creativereview.co.uk/feed/"
 content = "abstract"
 fetch_interval_hours = 12
 paywall = true
-enabled = true             # 平面/广告/品牌（UK），~3 条/天，部分付费墙
+enabled = false            # 平面/广告/品牌（UK），~3 条/天，部分付费墙。
+                           # 2026-07-15 起 CF 对数据中心 IP 出 JS 挑战（cf-mitigated:
+                           # challenge，VPS 403 / 本机 200 双端实测）——designweek 同款
+                           # （两家同属 Centaur Media，WAF 规则蔓延）。gnews 索引太薄
+                           # 不值兜底（近一周仅 1 条）。复活条件：换非数据中心出口
 
 [[source]]
 id = "designweek"
