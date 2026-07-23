@@ -183,6 +183,16 @@ def run_publish(date: str | None = None, force_stage: str | None = None,
                 swept_img = stages.sweep_image_cache(conf)
                 if swept_img:
                     log(f"[prune] 审选图缓存清扫 {swept_img} 个残留文件")
+                # 流量原始行滚动聚合（date 是刊历日，截止线也按刊历时区；
+                # 手动 rebas prune 路径在 runner.run_prune 里同款挂载）
+                from zoneinfo import ZoneInfo
+
+                from rebas.collect.runner import TRAFFIC_KEEP_DAYS
+                traffic_cutoff = (now_utc.astimezone(ZoneInfo(conf.timezone))
+                                  - timedelta(days=TRAFFIC_KEEP_DAYS)).strftime("%Y-%m-%d")
+                rolled = db.traffic_rollup(conn, traffic_cutoff)
+                if rolled:
+                    log(f"[prune] 流量原始行 {rolled} 条聚入 traffic_daily（>{TRAFFIC_KEEP_DAYS} 天）")
                 conn.commit()
                 continue
 
