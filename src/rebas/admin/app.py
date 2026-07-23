@@ -19,12 +19,12 @@ import time
 from pathlib import Path
 
 import tomlkit
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from rebas import db
-from rebas.admin import auth
+from rebas.admin import auth, traffic
 from rebas.agents.stages import _window_clause
 from rebas.collect.base import utcnow_iso
 from rebas.config import CONFIG_DIR, load_config, load_profile, load_sources
@@ -368,6 +368,38 @@ def feedback_summary(request: Request):
     finally:
         conn.close()
     return {"by_board": agg, "recent": recent}
+
+
+# ---------- 流量监控 ----------
+
+@app.post("/t")
+async def track(request: Request):
+    """信标摄入（公开端点，经 t.rebasdaily.com 进来；口径与滥用防护见 traffic.py）。
+
+    sendBeacon 发的是 text/plain 文本体（避免 CORS 预检），所以手工读 body 不走 pydantic。
+    无论丢弃还是入库一律 204——信标没有调用方会看响应，不给探测者反馈。
+    """
+    body = await request.body()
+    ip = request.headers.get("cf-connecting-ip") \
+        or (request.client.host if request.client else "")
+    conn = _conn()
+    try:
+        traffic.ingest(conn, load_config().timezone, ip=ip,
+                       ua=request.headers.get("user-agent", ""),
+                       country=request.headers.get("cf-ipcountry"), raw_body=body)
+    finally:
+        conn.close()
+    return Response(status_code=204)
+
+
+@app.get("/api/traffic")
+def traffic_summary(request: Request, days: int = 30):
+    _user(request)
+    conn = _conn()
+    try:
+        return traffic.summary(conn, load_config().timezone, days=days)
+    finally:
+        conn.close()
 
 
 # ---------- 页面 ----------

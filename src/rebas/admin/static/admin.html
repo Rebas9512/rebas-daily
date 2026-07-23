@@ -167,6 +167,19 @@ input:focus, textarea:focus, select:focus { outline: 2px solid var(--ink); outli
   .vote { margin-left: auto; }
 }
 
+/* ---- 流量图表（手写 SVG，无依赖）---- */
+.chart { margin-top: 14px; border: 1px solid var(--hairline); border-radius: 4px;
+         background: var(--surface); padding: 12px 10px 6px; }
+.chart svg { display: block; width: 100%; height: auto; }
+.chart text { font-family: var(--mono); font-size: 9px; fill: var(--muted); }
+.legend { display: flex; gap: 18px; padding: 2px 8px 6px; font-size: 11.5px;
+          color: var(--muted); flex-wrap: wrap; }
+.legend i { width: 14px; height: 2px; display: inline-block; vertical-align: middle;
+            margin-right: 6px; border-radius: 1px; }
+.duo { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+@media (max-width: 720px) { .duo { grid-template-columns: 1fr; } }
+.range { display: flex; gap: 6px; }
+
 /* ---- 登录 ---- */
 .login { max-width: 340px; margin: 16vh auto 0; padding: 0 24px;
          display: flex; flex-direction: column; gap: 14px; text-align: center; }
@@ -243,7 +256,7 @@ function renderLogin(msg='') {
 }
 
 /* ================= 外壳 ================= */
-const TABS = [['status','备稿状态'],['config','板块与参数'],['votes','报道反馈']];
+const TABS = [['status','备稿状态'],['traffic','流量'],['config','板块与参数'],['votes','报道反馈']];
 function renderShell(tab) {
   app.innerHTML = `
   <header>
@@ -276,7 +289,7 @@ function renderShell(tab) {
   </footer>`;
   app.querySelectorAll('[data-t]').forEach(b => b.onclick = () => renderShell(b.dataset.t));
   $('#logout').onclick = logout;
-  ({status:renderStatus, config:renderConfig, votes:renderVotes})[tab]();
+  ({status:renderStatus, traffic:renderTraffic, config:renderConfig, votes:renderVotes})[tab]();
 }
 const secHead = (no, en, title, note='') => `
   <section class="sec"><hr class="rule">
@@ -337,6 +350,116 @@ async function renderStatus() {
     el.scrollTop = el.scrollHeight;
   };
   $('#rl').onclick = loadLog; loadLog();
+}
+
+/* ================= 流量 ================= */
+// 双线趋势：真实 UV（信标）实线 vs CF zone UV（含爬虫）虚线；zone 有断档按段画
+function lineChart(daily) {
+  const W=940, H=190, P={l:40,r:14,t:12,b:22};
+  const xs = i => P.l + i*(W-P.l-P.r)/Math.max(1, daily.length-1);
+  const max = Math.max(1, ...daily.map(d=>Math.max(d.uv||0, d.zone_uv||0)));
+  const ys = v => P.t + (H-P.t-P.b)*(1 - v/max);
+  const path = key => {
+    let d='', pen=false;
+    daily.forEach((r,i)=>{
+      if (r[key]==null) { pen=false; return; }
+      d += `${pen?'L':'M'}${xs(i).toFixed(1)},${ys(r[key]).toFixed(1)}`; pen=true;
+    });
+    return d;
+  };
+  const grid = [0,.5,1].map(f=>{ const y=ys(max*f);
+    return `<line x1="${P.l}" y1="${y}" x2="${W-P.r}" y2="${y}" stroke="var(--hairline)" stroke-dasharray="2 4"/>
+      <text x="${P.l-6}" y="${y+3}" text-anchor="end">${Math.round(max*f)}</text>`; }).join('');
+  const step = daily.length>40 ? 14 : 7;
+  const ticks = daily.map((r,i)=> (daily.length-1-i)%step ? '' :
+    `<text x="${xs(i)}" y="${H-6}" text-anchor="middle">${r.date.slice(5)}</text>`).join('');
+  const hasZone = daily.some(r=>r.zone_uv!=null);
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="访客趋势">
+    ${grid}${ticks}
+    ${hasZone?`<path d="${path('zone_uv')}" fill="none" stroke="var(--muted)" stroke-width="1.3" stroke-dasharray="5 4"/>`:''}
+    <path d="${path('uv')}" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+  </svg><div class="legend"><span><i style="background:var(--accent)"></i>真实访客（信标）</span>
+    ${hasZone?'<span><i style="background:var(--muted)"></i>CF 总访客（含爬虫，T+1）</span>'
+             :'<span>CF 对照层未接入——配好 CLOUDFLARE_ANALYTICS_TOKEN 后出现第二条线</span>'}</div></div>`;
+}
+// 24 小时分布：近 7 日 PV 按刊历时区小时聚合；虚线=五个出刊批次时刻
+function hourChart(hours) {
+  const W=940, H=150, P={l:40,r:14,t:12,b:20}, n=24;
+  const max = Math.max(1, ...hours), bw = (W-P.l-P.r)/n;
+  const ys = v => P.t + (H-P.t-P.b)*(1 - v/max);
+  const bars = hours.map((v,h)=>`<rect x="${(P.l+h*bw+2).toFixed(1)}" y="${ys(v).toFixed(1)}"
+    width="${(bw-4).toFixed(1)}" height="${(H-P.b-ys(v)).toFixed(1)}" rx="1.5"
+    fill="var(--secondary)" opacity="0.55"><title>${h}:00 — ${v} 次浏览</title></rect>`).join('');
+  const marks = [0,5,10,15,20].map(h=>`<line x1="${(P.l+h*bw+bw/2).toFixed(1)}" y1="${P.t}"
+    x2="${(P.l+h*bw+bw/2).toFixed(1)}" y2="${H-P.b}" stroke="var(--accent)" stroke-width="1"
+    stroke-dasharray="2 4" opacity="0.6"><title>批${[0,5,10,15,20].indexOf(h)+1} 出刊</title></line>`).join('');
+  const ticks = [0,6,12,18,23].map(h=>`<text x="${(P.l+h*bw+bw/2).toFixed(1)}" y="${H-5}" text-anchor="middle">${h}时</text>`).join('');
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="时段分布">
+    <text x="${P.l-6}" y="${ys(max)+3}" text-anchor="end">${max}</text>${bars}${marks}${ticks}
+  </svg><div class="legend"><span><i style="background:var(--secondary);opacity:.55"></i>近 7 日页面浏览</span>
+    <span><i style="background:var(--accent)"></i>出刊批次时刻（刊历 ${'America/Chicago'.split('/')[1]}）</span></div></div>`;
+}
+
+async function renderTraffic(days=30) {
+  const m = $('#main');
+  m.innerHTML = '<div class="loading">加载中…</div>';
+  const s = await api('/api/traffic?days='+days);
+  const fmt = n => n==null ? '—' : n.toLocaleString('en-US');
+  const SEC_NAMES = {home:'首页', archive:'往期', topic:'文章页', issue:'期次页'};
+  const secRows = Object.entries(s.sections).sort((a,b)=>b[1]-a[1]);
+  const mob = s.devices.mobile||0, dsk = s.devices.desktop||0;
+  const tile = (label, v, sub='') => `<div class="card"><span class="mono">${label}</span><br>
+    <b>${v}</b>${sub?`<div style="font-size:12.5px;color:var(--muted)">${sub}</div>`:''}</div>`;
+  m.innerHTML = `
+    ${secHead(1,'TODAY','今日牌面','信标数据=执行了 JS 的真实浏览器；CF 对照含爬虫。今日 zone 行 T+1 才有，占比按昨日算。')}
+    <div class="cards">
+      ${tile('真实访客 UV', fmt(s.today.uv))}
+      ${tile('页面浏览 PV', fmt(s.today.pv), '人均 '+s.today.ppv+' 页')}
+      ${tile('近 7 日访客', fmt(s.today.week_uv), '按日去重累计')}
+      ${tile('昨日真实占比', s.yesterday.real_ratio==null?'—':s.yesterday.real_ratio+'%',
+             s.yesterday.zone_uv==null?'待 CF 对照层接入':'昨日 CF 总 UV '+fmt(s.yesterday.zone_uv))}
+      ${tile('移动端占比', (mob+dsk)?Math.round(mob/(mob+dsk)*100)+'%':'—', '近 7 日访客')}
+    </div></section>
+
+    ${secHead(2,'TREND','访客趋势 · '+s.days+' 天')}
+    ${lineChart(s.daily)}</section>
+
+    ${secHead(3,'HOURS','时段分布 · 近 7 日')}
+    ${hourChart(s.hours)}</section>
+
+    ${secHead(4,'PAGES','文章热度 · 近 7 日','文章页（topic-*）按标题聚合；标题取自页面 title。')}
+    ${s.pages.length?`<div class="scrollx"><table>
+      <tr><th>#</th><th>文章</th><th class="num">PV</th><th class="num">UV</th></tr>
+      ${s.pages.map((p,i)=>`<tr><td class="mono">${i+1}</td>
+        <td style="color:var(--ink)">${esc(p.title)}</td>
+        <td class="num">${p.pv}</td><td class="num">${p.uv}</td></tr>`).join('')}
+    </table></div>`:'<p class="sec__note" style="margin-top:14px">还没有文章页数据。</p>'}</section>
+
+    ${secHead(5,'AUDIENCE','栏目、来路与地域 · 近 7 日')}
+    <div class="duo" style="margin-top:14px">
+      <div class="scrollx" style="margin-top:0"><table style="min-width:0">
+        <tr><th>栏目</th><th class="num">PV</th></tr>
+        ${secRows.length?secRows.map(([k,v])=>`<tr>
+          <td>${SEC_NAMES[k]||`<span class="mono" style="font-size:10px">${esc(k)}</span>`}</td>
+          <td class="num">${v}</td></tr>`).join(''):'<tr><td colspan="2" style="color:var(--muted)">暂无</td></tr>'}
+      </table></div>
+      <div class="scrollx" style="margin-top:0"><table style="min-width:0">
+        <tr><th>站外来路</th><th class="num">次</th></tr>
+        ${s.referrers.length?s.referrers.map(r=>`<tr><td>${esc(r.referrer)}</td>
+          <td class="num">${r.n}</td></tr>`).join(''):'<tr><td colspan="2" style="color:var(--muted)">暂无（直接访问或无来路）</td></tr>'}
+      </table></div>
+      <div class="scrollx" style="margin-top:0"><table style="min-width:0">
+        <tr><th>国家/地区</th><th class="num">UV</th></tr>
+        ${s.countries.length?s.countries.map(c=>`<tr><td class="mono" style="font-size:11px">${esc(c.country)}</td>
+          <td class="num">${c.n}</td></tr>`).join(''):'<tr><td colspan="2" style="color:var(--muted)">暂无</td></tr>'}
+      </table></div>
+    </div></section>`;
+  $('#sec-x-2').innerHTML = `<span class="range">${[7,30,90].map(d=>
+    `<button class="btn btn--ghost" ${d===s.days?'style="color:var(--ink);border-color:var(--ink)"':''} data-d="${d}">${d} 天</button>`).join('')}</span>`;
+  $('#sec-x-2').querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>renderTraffic(+b.dataset.d));
+  if (!s.today.pv && !s.daily.some(d=>d.pv)) $('#main').insertAdjacentHTML('afterbegin',
+    `<p class="sec__note" style="margin-top:24px">还没有任何信标数据——确认 Tunnel 已加
+     t.rebasdaily.com 公开主机名，且站点已随批次重新部署（信标在页面模板里）。</p>`);
 }
 
 /* ================= 板块画像 + 出刊参数 ================= */

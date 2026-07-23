@@ -40,6 +40,8 @@ $REBAS collect || echo "[warn] collect 有源出错（单源级，已隔离）"
 
 case "$BATCH" in
   1)
+    # zone 流量对照层拉取（T+1 数据，一天一次够）；没配 token 时命令自身静默跳过
+    $REBAS traffic-pull || echo "[warn] zone 流量拉取失败（监控层，不影响出刊）"
     $REBAS publish || echo "[warn] 今日刊自愈失败，翻牌将展示最近完整期次"
     $REBAS render                       # 翻牌：昨天备好的刊此刻上线（零 token）
     if [ -n "${DEPLOY_CMD:-}" ]; then $DEPLOY_CMD; fi

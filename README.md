@@ -60,7 +60,7 @@ flowchart LR
 
 ## 技术栈
 
-`Python 3.12`（标准库 HTTP + feedparser + trafilatura） · `SQLite` 单文件 · `Codex CLI`（LLM 后端，可切 OpenAI API） · `Astro 5`（SSG） · `Cloudflare Pages` · `cron + healthchecks.io` · `FastAPI` 管理后台（备稿监控 / 画像与出刊参数在线编辑 / 报道反馈池，经 Cloudflare Tunnel 暴露，零入站端口）
+`Python 3.12`（标准库 HTTP + feedparser + trafilatura） · `SQLite` 单文件 · `Codex CLI`（LLM 后端，可切 OpenAI API） · `Astro 5`（SSG） · `Cloudflare Pages` · `cron + healthchecks.io` · `FastAPI` 管理后台（备稿监控 / 画像与出刊参数在线编辑 / 报道反馈池 / 流量监控——第一方无 cookie 信标分辨真人与爬虫 + CF zone 对照层，经 Cloudflare Tunnel 暴露，零入站端口）
 
 ## 跑起来
 

@@ -157,6 +157,27 @@ def render() -> None:
     typer.echo(f"输出目录: {conf.site_dir}/index.html")
 
 
+@app.command("traffic-pull")
+def traffic_pull(
+    days: int = typer.Option(3, "--days", help="回拉最近 N 天（幂等 upsert，断档自动补齐）"),
+) -> None:
+    """拉 CF zone 日汇总（真人+爬虫）进 traffic_zone_daily——admin 流量页的对照层。
+
+    需 .secrets/.env 配 CLOUDFLARE_ANALYTICS_TOKEN（Zone.Analytics:Read+Zone:Read）；
+    没配则静默跳过（退出码 0，cron 直接挂着等 token 就位）。
+    """
+    from rebas.admin.traffic import zone_pull
+
+    conf = cfg.load_config()
+    conn = database.init_db(conf.db_path)
+    try:
+        n = zone_pull(conn, days=days)
+    finally:
+        conn.close()
+    typer.echo("未配 CLOUDFLARE_ANALYTICS_TOKEN，跳过 zone 拉取" if n < 0
+               else f"zone 流量已更新 {n} 天")
+
+
 @app.command("admin-seed")
 def admin_seed(
     email: str = typer.Option(..., "--email", help="管理后台登录邮箱"),

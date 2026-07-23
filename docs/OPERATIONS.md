@@ -86,3 +86,19 @@ VPS 上的编辑部控制台：备稿状态监控、板块画像（关键词/权
 - 正式入口（2026-07-05 已挂通）：**https://admin.rebasdaily.com** —— Cloudflare Tunnel（VPS systemd 服务 `cloudflared`，dash 里 tunnel 名 rebas-admin，Public hostname → `http://localhost:8787`，出站连接不开端口）。可选加固：Zero Trust → Access 给该域套邮箱 OTP 策略做边缘拦截。
 - **画像/参数编辑写的是 VPS 上的 config 文件**：改完记得本机跑 `scripts/vps_pull_config.sh <user>@<vps>` 拉回入 git，否则下次 `vps_sync.sh` 会用本地旧版覆盖线上改动。
 - 反馈数据在 `feedback` 表（topic_id/vote/updated_at），选题加权算法未实现——先攒信号。
+
+## 流量监控（2026-07-23 上线）
+
+admin「流量」页的双层数据（设计与口径见 `src/rebas/admin/traffic.py` 模块注释）：
+
+- **信标层（真实用户）**：主站 Layout 内联 `sendBeacon` → `https://t.rebasdaily.com/t`
+  （Tunnel 第二条 Public hostname，同指 `localhost:8787`）→ `page_views` 表。
+  只有执行 JS 的浏览器会发信标 = 真人/爬虫分界线；无 cookie，visitor 为日盐哈希不落原始 IP。
+  原始行保留 90 天（`rebas prune` 时聚成 `traffic_daily` 永久留）。
+- **zone 对照层（含爬虫）**：`rebas traffic-pull`（cron 批 1 顺带，T+1 数据）→
+  `traffic_zone_daily`。需 `.secrets/.env` 配 `CLOUDFLARE_ANALYTICS_TOKEN`
+  （自定义 token：Zone.Analytics:Read + Zone.Zone:Read，只圈 rebasdaily.com；
+  部署用的 Pages:Edit token 权限不够）。没配则命令静默跳过，监控页少一条对照线。
+  **`.secrets/` 不随 vps_sync 同步**——token 要在 VPS 的 `.secrets/.env` 里单独放一份。
+- 监控页「真实占比」= 信标 UV ÷ zone UV（按昨日，zone 数据 T+1；zone 日界是 UTC、
+  信标日界是刊历时区，两者差几小时属已知口径差，看趋势不看绝对值）。

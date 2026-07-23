@@ -97,6 +97,36 @@ CREATE TABLE IF NOT EXISTS feedback (                  -- 报道点赞/点踩（
     vote       INTEGER NOT NULL,                       -- 1 赞 | -1 踩
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS page_views (                -- 主站信标原始行（2026-07-23，滚动保留见 runner.TRAFFIC_KEEP_DAYS）
+    id       INTEGER PRIMARY KEY,
+    ts       TEXT NOT NULL,                            -- UTC ISO
+    date     TEXT NOT NULL,                            -- 刊历日（config.timezone），聚合口径
+    hour     INTEGER NOT NULL,                         -- 刊历时（0-23），时段分布用
+    visitor  TEXT NOT NULL,                            -- hash(日盐+IP+UA)，不落原始 IP/UA
+    path     TEXT NOT NULL,
+    title    TEXT,
+    referrer TEXT,                                     -- 仅站外来路，只留 host
+    country  TEXT,                                     -- CF-IPCountry 两位码
+    device   TEXT                                      -- mobile | desktop
+);
+CREATE INDEX IF NOT EXISTS idx_page_views_date ON page_views(date);
+
+CREATE TABLE IF NOT EXISTS traffic_daily (             -- page_views 滚出保留窗后的永久日聚合
+    date   TEXT PRIMARY KEY,
+    uv     INTEGER NOT NULL,
+    pv     INTEGER NOT NULL,
+    detail TEXT                                        -- JSON：sections/countries/devices 计数
+);
+
+CREATE TABLE IF NOT EXISTS traffic_zone_daily (        -- CF zone 日汇总（真人+爬虫），traffic-pull 写入
+    date            TEXT PRIMARY KEY,
+    requests        INTEGER,
+    uniques         INTEGER,
+    cached_requests INTEGER,
+    bytes           INTEGER,
+    fetched_at      TEXT
+);
 """
 
 
@@ -283,3 +313,32 @@ def gnews_cache_put(conn: sqlite3.Connection, gnews_url: str, real_url: str) -> 
         "INSERT OR REPLACE INTO gnews_cache (gnews_url, real_url, resolved_at) VALUES (?,?,?)",
         (gnews_url, real_url, datetime.now(timezone.utc).isoformat(timespec="seconds")),
     )
+
+
+# ---------- 流量监控（2026-07-23，见 admin/traffic.py） ----------
+
+def traffic_rollup(conn: sqlite3.Connection, before_date: str) -> int:
+    """把 before_date 之前的 page_views 聚成 traffic_daily 后删原始行（prune 调用）。
+
+    永久留 uv/pv + 国家/设备计数；path/referrer 明细随原始行滚出——
+    监控页的明细视图只看保留窗内，长期趋势只需要日聚合。
+    """
+    import json
+
+    dates = [r["date"] for r in conn.execute(
+        "SELECT DISTINCT date FROM page_views WHERE date < ?", (before_date,))]
+    for d in dates:
+        uv, pv = conn.execute(
+            "SELECT count(DISTINCT visitor), count(*) FROM page_views WHERE date=?",
+            (d,)).fetchone()
+        detail = {}
+        for col in ("country", "device"):
+            detail[col] = {r[0]: r[1] for r in conn.execute(
+                f"SELECT {col}, count(*) FROM page_views WHERE date=?"
+                f" AND {col} IS NOT NULL GROUP BY {col}", (d,))}
+        conn.execute(
+            "INSERT OR REPLACE INTO traffic_daily (date, uv, pv, detail) VALUES (?,?,?,?)",
+            (d, uv, pv, json.dumps(detail, ensure_ascii=False)))
+    cur = conn.execute("DELETE FROM page_views WHERE date < ?", (before_date,))
+    conn.commit()
+    return cur.rowcount

@@ -288,8 +288,13 @@ def run_backfill(date: str, source_id: str | None = None) -> list[SourceStats]:
     return all_stats
 
 
+TRAFFIC_KEEP_DAYS = 90   # 信标原始行保留窗；窗外聚成 traffic_daily 永久留（2026-07-23）
+
+
 def run_prune(days: int, vacuum: bool = False) -> int:
     """瘦身：清空 N 天前条目的大字段（出刊窗口早已过去，只留题录）。"""
+    from zoneinfo import ZoneInfo
+
     from rebas.config import pooled_source_groups
 
     conf = load_config()
@@ -302,6 +307,10 @@ def run_prune(days: int, vacuum: bool = False) -> int:
     # gnews 解析缓存 30 天过期（含负缓存），防 cron 长期运行无限膨胀
     cache_cutoff = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
     db.prune_gnews_cache(conn, cache_cutoff)
+    # 流量原始行滚动聚合（date 列是刊历日，截止线也按刊历时区算）
+    traffic_cutoff = (now.astimezone(ZoneInfo(conf.timezone))
+                      - timedelta(days=TRAFFIC_KEEP_DAYS)).strftime("%Y-%m-%d")
+    db.traffic_rollup(conn, traffic_cutoff)
     if vacuum:
         conn.execute("VACUUM")
     conn.close()

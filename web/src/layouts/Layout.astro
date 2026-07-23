@@ -33,6 +33,12 @@ const { title, description, active, issueLabel, issueDate } = Astro.props;
       // PWA 渐进增强：仅 https 下注册（file:// 直开与老浏览器自动跳过），页面渲染不依赖 JS
       if ("serviceWorker" in navigator && location.protocol === "https:")
         navigator.serviceWorker.register("sw.js");
+      // 流量信标（admin「流量」页数据源，收集端见 src/rebas/admin/traffic.py）：
+      // 只在正式域名发；文本体不触发 CORS 预检；执行 JS 是真人/爬虫的分界线
+      if (location.hostname === "rebasdaily.com" && navigator.sendBeacon)
+        navigator.sendBeacon("https://t.rebasdaily.com/t", JSON.stringify({
+          p: location.pathname, t: document.title.slice(0, 160), r: document.referrer,
+        }));
     </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
