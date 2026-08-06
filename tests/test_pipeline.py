@@ -73,6 +73,31 @@ class TestPromptTemplates:
         assert "card_summary" in brief and "不用小标题" in brief
         assert "写作基调" in brief       # style.md 同样注入速览模板
         assert "本篇无图片材料" in brief  # 无图时材料块为占位说明
+        classic_d = render_prompt("editor_classic_design",
+                                  day_rule="今天是平面设计日",
+                                  done_block="- 红蓝椅", retry_block="")
+        assert "wiki_title" in classic_d and "设计" in classic_d
+        assert "产品与工业设计日" in classic_d and "自由日" in classic_d  # 轮换表可编辑
+        docent_d = render_prompt("writer_classic_design", board_name="设计",
+                                 topic_title="红蓝椅 — Rietveld", reason="r",
+                                 target_length=1800,
+                                 check_block="- ...", background_block="- 风格派：...",
+                                 images_block=images_block(
+                                     [(1, "https://x.com/a.jpg")]),
+                                 materials_block="[S1] ...")
+        assert "设计博物馆" in docent_d and "事实铁律" in docent_d
+        assert "写作基调" not in docent_d   # 同艺术版：自带语域不注入 style.md
+        assert "images_keep" in docent_d and "card_summary" in docent_d
+        docent = render_prompt("writer_classic_art", board_name="艺术",
+                               topic_title="宫娥 — 委拉斯开兹", reason="r",
+                               target_length=1800,
+                               check_block="- ...", background_block="- 巴洛克：...",
+                               images_block=images_block(
+                                   [(1, "https://x.com/a.jpg")]),
+                               materials_block="[S1] ...")
+        assert "导览员" in docent and "事实铁律" in docent   # 栏目语域 + 纪律不放松
+        assert "写作基调" not in docent   # 不注入新闻向 style.md（自带语域）
+        assert "images_keep" in docent and "card_summary" in docent  # 输出契约一致
 
     def test_check_block_formats(self):
         raw = ('{"claims":[{"claim":"X 提升 2 倍","support":1,"confidence":"single"}],'
@@ -568,6 +593,63 @@ class TestClassicColumn:
         assert stages._nominate_classic(conn, self._conf(), backend, "art",
                                         "2026-07-06")["classic"] == "已有栏目选题"
 
+    def test_nominate_design_variant(self, tmp_path, monkeypatch):
+        """设计版（2026-08-05）：门类按星期轮换、独立虚拟源与统计键，闸门机制同艺术版。"""
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_wiki_lead_image",
+                            lambda c, t: "https://upload.wikimedia.org/chair.jpg")
+        monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
+        backend = _FakeBackend(json.dumps({
+            "artwork": "红蓝椅", "artist": "Gerrit Rietveld", "year": "1917",
+            "title": "一把只用木条和色块的椅子", "wiki_title": "Red and Blue Chair",
+            "image_url": "", "reason": "风格派宣言的三维化",
+            "thread_key": "classic-red-blue-chair"}, ensure_ascii=False))
+        s = stages._nominate_classic(
+            conn, self._conf(), backend, "design", "2026-08-05",
+            source_id="classic-design", template="editor_classic_design",
+            day_rule=stages._classic_design_day_rule("2026-08-05"),
+            stat_key="classic_design")
+        assert "红蓝椅" in s["classic_design"]
+        assert "平面设计日" in backend.prompts[0]      # 2026-08-05 = 周三
+        item = conn.execute("SELECT * FROM raw_items").fetchone()
+        assert item["source_id"] == "classic-design" and item["status"] == "selected"
+        t = conn.execute("SELECT * FROM topics").fetchone()
+        assert t["board"] == "design" and t["thread_key"] == "classic-red-blue-chair"
+
+    def test_stage_editor_design_column_wrapper(self, tmp_path, monkeypatch):
+        """设计板块的 stage_editor 触发设计版提名（参数带 classic-design 一套）。"""
+        import dataclasses
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, created_at) VALUES"
+            " ('2026-08-05','design','已有题','existing',?,'brief','x')",
+            (json.dumps([1]),))
+        conn.commit()
+        seen = {}
+
+        def fake_nominate(conn_, conf_, backend_, board_, date_, **kw):
+            seen.update(kw)
+            return {kw.get("stat_key", "classic"): "提名成功桩"}
+        monkeypatch.setattr(stages, "_nominate_classic", fake_nominate)
+        conf = dataclasses.replace(self._conf(), classic_design_board="design")
+        profile = Profile(board="design", name="设计", interests=())
+        s = stages.stage_editor(conn, conf, None, "design", profile,
+                                "设计", "2026-08-05")
+        assert s["skipped"] == "topics 已存在"
+        assert s["classic_design"] == "提名成功桩"
+        assert seen["source_id"] == "classic-design"
+        assert seen["template"] == "editor_classic_design"
+        assert "平面设计日" in seen["day_rule"]        # 周三
+
     def test_image_gate_retry_then_giveup(self, tmp_path, monkeypatch):
         import json
 
@@ -626,7 +708,8 @@ def test_force_rewind_excludes_classic_item(tmp_path):
     conn = database.init_db(tmp_path / "t.sqlite")
     now = utcnow_iso()
     for sid, url in (("dezeen", "http://x/a"), ("classic-art", "http://wiki/b"),
-                     ("classic-paper", "http://arxiv/c")):
+                     ("classic-paper", "http://arxiv/c"),
+                     ("classic-design", "http://wiki/d")):
         conn.execute(
             "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
             " fetched_at, status) VALUES (?,?,?,?,'t',?,'selected')",
@@ -644,6 +727,7 @@ def test_force_rewind_excludes_classic_item(tmp_path):
     assert st["dezeen"] == "screened"        # 普通候选回粗筛池
     assert st["classic-art"] == "dropped"    # 栏目条目不回池
     assert st["classic-paper"] == "dropped"  # 经典重读合成条目同样不回池
+    assert st["classic-design"] == "dropped"  # 设计版栏目条目同样不回池
     assert conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
 
     _rewind_products(conn, load_config(), "2026-01-01", "screen", lambda *_: None)
@@ -873,6 +957,71 @@ def test_stage_writer_brief_fulltext_disabled(tmp_path):
     prompt = backend.prompts[0]
     assert "已抓取的全文" not in prompt and "这是摘要" in prompt   # 未加载原文，用摘要
     assert (conf.paper_cache_dir / f"{iid}.txt").exists()   # 未触碰
+
+
+def test_stage_writer_classic_art_docent_template(tmp_path):
+    """经典鉴赏选题走导览员模板（2026-08-05）：栏目语域替代新闻稿；
+    同板块常规选题不受影响，仍走 writer.md + style.md。"""
+    import dataclasses
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import stage_writer
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at) VALUES ('classic-art','art','https://en.wikipedia.org/wiki/X',"
+        " 'https://en.wikipedia.org/wiki/X','宫娥 — 委拉斯开兹（1656）','维基正文','x')")
+    iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    for title, key in (("宫娥", "classic-las-meninas"), ("常规专题", "k2")):
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, created_at, reason) VALUES"
+            " ('2026-01-01','art',?,?,?,'feature','x','r')",
+            (title, key, json.dumps([iid])))
+    conn.commit()
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    assert conf.classic_board == "art"   # 路由条件依赖生产配置的栏目板块
+    out = json.dumps({"card_summary": "卡", "body_md": "正文"}, ensure_ascii=False)
+    backend = _FakeBackend(out, out)
+    assert stage_writer(conn, conf, backend, "art", "艺术", "2026-01-01") == {
+        "written": 2}
+    docent = next(p for p in backend.prompts if "经典鉴赏" in p)
+    regular = next(p for p in backend.prompts if "经典鉴赏" not in p)
+    assert "导览员" in docent and "写作基调" not in docent
+    assert "导览员" not in regular and "写作基调" in regular
+
+
+def test_stage_writer_classic_design_docent_template(tmp_path):
+    """设计版经典鉴赏走设计博物馆导览员模板（2026-08-05）。"""
+    import dataclasses
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import stage_writer
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at) VALUES ('classic-design','design','https://en.wikipedia.org/wiki/Y',"
+        " 'https://en.wikipedia.org/wiki/Y','红蓝椅 — Rietveld（1917）','维基正文','x')")
+    iid = conn.execute("SELECT id FROM raw_items").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+        " decision, created_at, reason) VALUES"
+        " ('2026-01-01','design','红蓝椅','classic-red-blue-chair',?,'feature','x','r')",
+        (json.dumps([iid]),))
+    conn.commit()
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path)
+    assert conf.classic_design_board == "design"   # 路由条件依赖生产配置
+    backend = _FakeBackend(json.dumps({"card_summary": "卡", "body_md": "正文"},
+                                      ensure_ascii=False))
+    assert stage_writer(conn, conf, backend, "design", "设计", "2026-01-01") == {
+        "written": 1}
+    assert "设计博物馆" in backend.prompts[0] and "写作基调" not in backend.prompts[0]
 
 
 def _writer_design_conn(tmp_path):

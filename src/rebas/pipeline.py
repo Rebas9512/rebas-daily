@@ -72,21 +72,23 @@ def _rewind_products(conn, conf, issue_date: str, force_stage: str, log) -> None
             # 它们不是采集候选，回池会混进粗筛/主编的正常选题流，置 dropped
             # （已鉴赏/已精读清单按 source_id 查 title，不受 status 影响）
             ph = ",".join("?" * len(flat_ids))
+            cls_ph = ",".join("?" * len(stages.CLASSIC_SOURCE_IDS))
             conn.execute(
                 f"UPDATE raw_items SET status='screened' WHERE status='selected'"
-                f" AND source_id NOT IN ('classic-art','classic-paper')"
-                f" AND id IN ({ph})", flat_ids)
+                f" AND source_id NOT IN ({cls_ph})"
+                f" AND id IN ({ph})", (*stages.CLASSIC_SOURCE_IDS, *flat_ids))
             conn.execute(
                 f"UPDATE raw_items SET status='dropped' WHERE status='selected'"
-                f" AND source_id IN ('classic-art','classic-paper')"
-                f" AND id IN ({ph})", flat_ids)
+                f" AND source_id IN ({cls_ph})"
+                f" AND id IN ({ph})", (*stages.CLASSIC_SOURCE_IDS, *flat_ids))
     if "screen" in cascade:
         clause, params = stages._window_clause(conf)
+        cls_ph = ",".join("?" * len(stages.CLASSIC_SOURCE_IDS))
         cur = conn.execute(
             f"UPDATE raw_items SET status='new'"
             f" WHERE status IN ('screened','dropped','selected')"
-            f" AND source_id NOT IN ('classic-art','classic-paper') AND {clause}",
-            params)
+            f" AND source_id NOT IN ({cls_ph}) AND {clause}",
+            (*stages.CLASSIC_SOURCE_IDS, *params))
         log(f"[force] 窗口内 {cur.rowcount} 条候选重置为待粗筛")
     conn.commit()
 

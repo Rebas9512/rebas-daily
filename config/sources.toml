@@ -1892,6 +1892,19 @@ enabled = false             # 《经典鉴赏》栏目专用虚拟源：条目�
                             # 不走采集调度；此条只为前端来源名与 content 深度映射存在
 
 [[source]]
+id = "classic-design"
+board = "design"
+name = "经典鉴赏 · Wikipedia"
+type = "rss"
+endpoint = "-"
+content = "abstract"
+fetch_interval_hours = 8760
+enabled = false             # 设计版《经典鉴赏》栏目专用虚拟源（2026-08-05）：条目由
+                            # 主编提名时代码合成（url 指向作品的 Wikipedia 条目，取材
+                            # 抓正文当材料），不走采集调度；此条只为前端来源名与
+                            # content 深度映射存在
+
+[[source]]
 id = "classic-paper"
 board = "academic"
 name = "经典重读 · arXiv"

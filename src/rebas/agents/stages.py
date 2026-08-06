@@ -386,6 +386,17 @@ def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
         except Exception as e:  # noqa: BLE001 —— 栏目级隔离，常规选题成果不陪葬
             conn.rollback()
             stats = {**stats, "classic": f"失败（下一批自愈重试）: {type(e).__name__}: {e}"}
+    if board == conf.classic_design_board:
+        try:
+            stats = {**stats, **_nominate_classic(
+                conn, conf, backend, board, issue_date,
+                source_id="classic-design", template="editor_classic_design",
+                day_rule=_classic_design_day_rule(issue_date),
+                stat_key="classic_design")}
+        except Exception as e:  # noqa: BLE001 —— 栏目级隔离，常规选题成果不陪葬
+            conn.rollback()
+            stats = {**stats,
+                     "classic_design": f"失败（下一批自愈重试）: {type(e).__name__}: {e}"}
     if board == conf.classic_paper_board and refill:
         try:
             stats = {**stats, **_nominate_classic_paper(conn, conf, backend, board,
@@ -551,8 +562,10 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
 # ---------- Stage 2.5 经典鉴赏栏目（2026-07-07，主编提名 + 图片闸门） ----------
 
 CLASSIC_ATTEMPTS = 3             # 提名重试上限：每次失败=这件作品拿不到可用图，换一件
+# 栏目合成条目的虚拟源（不是采集候选）：force-stage 回拨/重置时不放回正常选题流
+CLASSIC_SOURCE_IDS = ("classic-art", "classic-design", "classic-paper")
 CLASSIC_IMG_MIN_BYTES = 10_000   # 名作配图最低体量（过滤图标/占位图）
-CLASSIC_TARGET_LENGTH = 1200
+CLASSIC_TARGET_LENGTH = 1800    # 导览员语域要展开讲艺术史与文化脉络（2026-08-05）
 _WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
 
 
@@ -562,6 +575,26 @@ def _classic_day_rule(issue_date: str) -> str:
     wd = date_cls(y, m, d).weekday()
     mode = "油画日（必须是油画作品）" if wd < 5 else "自由日（任何门类）"
     return f"今天是 {issue_date}（{_WEEKDAY_CN[wd]}）→ **{mode}**"
+
+
+# 设计版经典鉴赏的门类轮换（2026-08-05）：防选品扎堆单一门类，周末自由
+_CLASSIC_DESIGN_ROTATION = (
+    "产品与工业设计日（器物、家电、电子产品、工具）",
+    "建筑与空间日（建筑、室内、景观）",
+    "平面设计日（海报、标志、字体、版式、信息设计）",
+    "家具与灯具日",
+    "交通工具与装备日（汽车、飞机、船、相机、器械）",
+    "自由日（任何设计门类：时装、包装、交互、游戏、展陈……前五日门类也行）",
+    "自由日（任何设计门类：时装、包装、交互、游戏、展陈……前五日门类也行）",
+)
+
+
+def _classic_design_day_rule(issue_date: str) -> str:
+    from datetime import date as date_cls
+    y, m, d = map(int, issue_date.split("-"))
+    wd = date_cls(y, m, d).weekday()
+    return (f"今天是 {issue_date}（{_WEEKDAY_CN[wd]}）→ "
+            f"**{_CLASSIC_DESIGN_ROTATION[wd]}**")
 
 
 def _validate_classic_image(client, url: str) -> bool:
@@ -599,8 +632,13 @@ def _wiki_lead_image(client, wiki_title: str) -> str | None:
 
 
 def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
-                      issue_date: str) -> dict:
-    """《经典鉴赏》：策展主编（联网）提名一件经典作品，周一至五油画/周末自由。
+                      issue_date: str, *, source_id: str = "classic-art",
+                      template: str = "editor_classic",
+                      day_rule: str | None = None,
+                      stat_key: str = "classic") -> dict:
+    """《经典鉴赏》：策展主编（联网）提名一件经典作品。缺省=艺术版（周一至五
+    油画/周末自由）；设计版（2026-08-05）复用同一闸门与建题机制，仅换提名模板
+    （editor_classic_design，门类按星期轮换）、虚拟源（classic-design）与统计键。
 
     图片闸门：直图通道（Wikipedia 主图 API）→ 主编自带直链兜底，两条都验证
     真实可下载；拿不到图 = 换一件重提（最多 CLASSIC_ATTEMPTS 次），与经典论文
@@ -613,10 +651,10 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
     if conn.execute(
             "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
             " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
-        return {"classic": "已有栏目选题"}
+        return {stat_key: "已有栏目选题"}
     done = [r["title"] for r in conn.execute(
-        "SELECT title FROM raw_items WHERE source_id='classic-art'"
-        " ORDER BY id DESC LIMIT 300")]
+        "SELECT title FROM raw_items WHERE source_id=?"
+        " ORDER BY id DESC LIMIT 300", (source_id,))]
     done_block = "\n".join(f"- {t}" for t in done) or "（栏目首期，还没有已鉴赏作品）"
 
     rejected: list[str] = []
@@ -627,7 +665,7 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 retry_block = ("**注意：下列作品刚提名过但拿不到可用图片，请换一件作品**"
                                "（换作品，不是换图链）：" + "、".join(rejected))
             prompt = render_prompt(
-                "editor_classic", day_rule=_classic_day_rule(issue_date),
+                template, day_rule=day_rule or _classic_day_rule(issue_date),
                 done_block=done_block, retry_block=retry_block)
             result = complete_json(backend, prompt, role="classic")
             artwork = str(result.get("artwork") or "").strip()
@@ -651,7 +689,7 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                         + urllib.parse.quote(wiki_title.replace(" ", "_"))
                         if wiki_title else images[0])
             item = RawItem(
-                source_id="classic-art", board=board, kind="article",
+                source_id=source_id, board=board, kind="article",
                 url=page_url, url_canonical=canonicalize_url(page_url),
                 title=f"{artwork} — {artist}（{result.get('year') or '年代不详'}）",
                 summary=str(result.get("reason") or "")[:500] or None,
@@ -680,10 +718,10 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                  None, utcnow_iso()))
             conn.commit()
             if cur.rowcount == 0:
-                return {"classic": f"撞事件线唯一索引，本期跳过（{key}）"}
-            return {"classic": f"{artwork}（{artist}），图 {len(images)} 张"}
-    return {"classic": f"放弃：{CLASSIC_ATTEMPTS} 次提名均拿不到可用图"
-                       f"（{'、'.join(rejected)}）"}
+                return {stat_key: f"撞事件线唯一索引，本期跳过（{key}）"}
+            return {stat_key: f"{artwork}（{artist}），图 {len(images)} 张"}
+    return {stat_key: f"放弃：{CLASSIC_ATTEMPTS} 次提名均拿不到可用图"
+                      f"（{'、'.join(rejected)}）"}
 
 
 # ---------- Stage 2.6 经典论文精读栏目（2026-07-09，淡日供给：提名 + 原文闸门） ----------
@@ -1374,8 +1412,17 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
             if fulltext and conf.paper_deepread_length:
                 # 精读专题：篇幅放宽，目标是把论文讲明白（材料有原文撑得起）
                 target = max(target, conf.paper_deepread_length)
+            # 经典鉴赏走导览员模板（自带栏目语域，不注入新闻向 style.md）：
+            # 艺术=美术馆导览员，设计=设计博物馆导览员；经典重读在
+            # classic_paper_board，不在此列，仍走论文精读线
+            tpl = "writer"
+            if (t["thread_key"] or "").startswith("classic-"):
+                if board == conf.classic_board:
+                    tpl = "writer_classic_art"
+                elif board == conf.classic_design_board:
+                    tpl = "writer_classic_design"
             return render_prompt(
-                "writer", board_name=board_name, topic_title=t["title"],
+                tpl, board_name=board_name, topic_title=t["title"],
                 reason=t["reason"] or "（主编未附理由）", target_length=target,
                 check_block=check_block(t["check_notes"]),
                 background_block=background_block(t["background"]),
