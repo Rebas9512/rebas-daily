@@ -259,26 +259,32 @@ const heroImages = heroPool && heroPool.length > 1 ? heroPool.slice(0, 6) : null
     gap: 10px;
   }
 
+  /* 报道页图片不裁切（2026-08-05）：原比例缩放居中，完整构图优先于版面整齐——
+     预览卡片（首页/板块页）仍裁切保版面，进来阅读看完整图。
+     图元素随图收窄（align-self 取消 flex 拉伸），缩放只缩不裁 */
   .hero img {
-    width: 100%;
-    max-height: 440px;
-    object-fit: cover;
+    align-self: center;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 76vh;
+    object-fit: contain;
     border-radius: 4px;
     border: 1px solid var(--hairline);
     background: var(--soft);
   }
 
-  /* 多图报道页：主图之下的图库网格（等宽分栏自适应，单元 4:3） */
+  /* 多图报道页：主图之下的图库网格（等宽分栏自适应，原比例缩略、灯箱看大图） */
   .hero__grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 8px;
+    align-items: start;
+    justify-items: center;
   }
 
   .hero__grid img {
-    aspect-ratio: 4 / 3;
-    height: 100%;
-    max-height: none;
+    max-height: 340px;
   }
 
   .art-body {
@@ -341,10 +347,14 @@ const heroImages = heroPool && heroPool.length > 1 ? heroPool.slice(0, 6) : null
     gap: 10px;
   }
 
+  /* 正文插图同样不裁切（细节图常为竖长条，cover 会切掉构图） */
   .art-body :global(figure img) {
-    width: 100%;
-    max-height: 480px;
-    object-fit: cover;
+    align-self: center;
+    width: auto;
+    max-width: 100%;
+    height: auto;
+    max-height: 76vh;
+    object-fit: contain;
     border-radius: 4px;
     border: 1px solid var(--hairline);
     background: var(--soft);
@@ -444,4 +454,191 @@ const heroImages = heroPool && heroPool.length > 1 ? heroPool.slice(0, 6) : null
       font-size: 28px;
     }
   }
+
+  /* 可点开灯箱的图给出手势暗示 */
+  .hero img,
+  .art-body :global(img) {
+    cursor: zoom-in;
+  }
 </style>
+
+<style is:global>
+  /* 图片灯箱（JS 动态创建，须全局样式）：黑场、原图适配视口、变换缩放 */
+  dialog.lightbox {
+    border: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    max-width: none;
+    max-height: none;
+    background: transparent;
+    overflow: hidden;
+    touch-action: none;
+  }
+
+  dialog.lightbox[open] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  dialog.lightbox::backdrop {
+    background: rgba(10, 10, 10, 0.88);
+  }
+
+  .lightbox__img {
+    max-width: 94vw;
+    max-height: 92vh;
+    max-height: 92dvh;
+    user-select: none;
+    -webkit-user-drag: none;
+    will-change: transform;
+    cursor: grab;
+  }
+
+  .lightbox__close {
+    position: fixed;
+    top: 14px;
+    right: 16px;
+    z-index: 2;
+    width: 40px;
+    height: 40px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .lightbox__hint {
+    position: fixed;
+    bottom: 14px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: rgba(255, 255, 255, 0.55);
+    pointer-events: none;
+  }
+</style>
+
+<script is:inline>
+  // 渐进增强③（前两处：SW 注册、移动端分享键）：图片灯箱——点击正文/头图区
+  // 图片弹出原图，滚轮/双击/双指缩放、拖拽平移查看细节。无 JS 时阅读不受影响。
+  (() => {
+    let dlg, pic, scale, tx, ty;
+    const ptrs = new Map();
+    let pinchBase = 0, pinchScale = 1, dragMoved = false;
+
+    const apply = () => {
+      pic.style.transform = "translate(" + tx + "px," + ty + "px) scale(" + scale + ")";
+      pic.style.cursor = scale > 1 ? "grab" : "zoom-in";
+    };
+    const reset = () => { scale = 1; tx = 0; ty = 0; apply(); };
+    // 以视口中心为原点、指针位置为锚点缩放（transform-origin 默认 center）
+    const zoomAt = (cx, cy, next) => {
+      next = Math.min(8, Math.max(1, next));
+      if (next === scale) return;
+      const k = next / scale;
+      tx = cx - k * (cx - tx);
+      ty = cy - k * (cy - ty);
+      scale = next;
+      if (scale === 1) { tx = 0; ty = 0; }
+      apply();
+    };
+    const anchor = (e) => [
+      e.clientX - innerWidth / 2,
+      e.clientY - innerHeight / 2,
+    ];
+
+    const build = () => {
+      dlg = document.createElement("dialog");
+      dlg.className = "lightbox";
+      pic = document.createElement("img");
+      pic.className = "lightbox__img";
+      pic.alt = "";
+      pic.decoding = "async";
+      const close = document.createElement("button");
+      close.className = "lightbox__close";
+      close.setAttribute("aria-label", "关闭");
+      close.textContent = "×";
+      const hint = document.createElement("div");
+      hint.className = "lightbox__hint";
+      hint.textContent = "滚轮 / 双击 / 双指缩放 · 拖拽平移 · ESC 关闭";
+      dlg.append(pic, close, hint);
+      document.body.appendChild(dlg);
+
+      close.addEventListener("click", () => dlg.close());
+      dlg.addEventListener("close", () => {
+        document.documentElement.style.overflow = "";
+        pic.removeAttribute("src");
+      });
+      // 点空场关闭（拖拽结束的抬手不算）
+      dlg.addEventListener("click", (e) => {
+        if (e.target === dlg && !dragMoved) dlg.close();
+      });
+      dlg.addEventListener("wheel", (e) => {
+        e.preventDefault();
+        const [cx, cy] = anchor(e);
+        zoomAt(cx, cy, scale * (e.deltaY < 0 ? 1.3 : 0.75));
+      }, { passive: false });
+      dlg.addEventListener("dblclick", (e) => {
+        const [cx, cy] = anchor(e);
+        scale > 1 ? reset() : zoomAt(cx, cy, 2.6);
+      });
+      dlg.addEventListener("pointerdown", (e) => {
+        ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+        dragMoved = false;
+        if (ptrs.size === 2) {
+          const [a, b] = [...ptrs.values()];
+          pinchBase = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          pinchScale = scale;
+        }
+      });
+      dlg.addEventListener("pointermove", (e) => {
+        if (!ptrs.has(e.pointerId)) return;
+        // 鼠标在窗口外松开时收不到 pointerup——按键已抬起就当已离手
+        if (e.pointerType === "mouse" && e.buttons === 0) {
+          ptrs.delete(e.pointerId);
+          pinchBase = 0;
+          return;
+        }
+        const prev = ptrs.get(e.pointerId);
+        ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+        if (ptrs.size === 1) {
+          if (scale <= 1) return;
+          tx += e.clientX - prev[0];
+          ty += e.clientY - prev[1];
+          if (Math.hypot(e.clientX - prev[0], e.clientY - prev[1]) > 2) dragMoved = true;
+          apply();
+        } else if (ptrs.size === 2 && pinchBase > 0) {
+          const [a, b] = [...ptrs.values()];
+          const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          const cx = (a[0] + b[0]) / 2 - innerWidth / 2;
+          const cy = (a[1] + b[1]) / 2 - innerHeight / 2;
+          zoomAt(cx, cy, pinchScale * (d / pinchBase));
+          dragMoved = true;
+        }
+      });
+      const lift = (e) => { ptrs.delete(e.pointerId); pinchBase = 0; };
+      dlg.addEventListener("pointerup", lift);
+      dlg.addEventListener("pointercancel", lift);
+    };
+
+    document.addEventListener("click", (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLImageElement)) return;
+      if (!t.closest(".hero") && !t.closest(".art-body")) return;
+      if (!dlg) build();
+      pic.src = t.currentSrc || t.src;
+      reset();
+      document.documentElement.style.overflow = "hidden";
+      dlg.showModal();
+    });
+  })();
+</script>
