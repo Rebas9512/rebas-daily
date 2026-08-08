@@ -788,12 +788,16 @@ enabled = true
 [[source]]
 id = "artnet-news"
 board = "art"
-name = "Artnet News"
-type = "rss"
-endpoint = "https://news.artnet.com/feed"
+name = "Artnet News (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:news.artnet.com+when:7d&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 12
-enabled = true
+enabled = true              # 2026-08-08 确诊 news.artnet.com 上了 CF JS 挑战（cf-mitigated:
+                            # challenge，VPS 403 / 本机 200，urllib+curl 双指纹同拦）——designweek/
+                            # creativereview 同款，连败 15。与 creativereview 不同 gnews 索引密度足
+                            # （site:news.artnet.com when:7d 实测 59 条）→ 切 gnews 兜底（bloomberg
+                            # 剧本）。复活条件：https://news.artnet.com/feed 对 VPS 出口放行可切回 rss
 
 [[source]]
 id = "artnewspaper"
