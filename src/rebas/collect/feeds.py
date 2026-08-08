@@ -26,6 +26,10 @@ _SG_RE = re.compile(r'data-n-a-sg="([^"]+)"')
 # batchexecute 响应里内层 JSON 是转义形式（\"garturlres\",\"https://...\"），两种都兼容
 _RES_RE = re.compile(r'\\?"garturlres\\?",\\?"(https?://[^"\\]+)')
 
+# Google News 搜索索引会把站点的翻页归档页也收进来（WP 惯例 /page/N，标题是
+# 栏目名不是文章题），还原真实 URL 后按路径滤掉
+_GNEWS_INDEX_PAGE_RE = re.compile(r"/page/\d+/?$")
+
 
 def resolve_gnews_url(client: HttpClient, link: str) -> str | None:
     """Google News 跳转 URL → 真实文章 URL（batchexecute 接口，2026-07-03 实测可用）。"""
@@ -121,6 +125,9 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
                     skipped += 1     # 解析失败不入库，避免污染去重
                     continue
                 db.gnews_cache_put(conn, link, real)
+            if _GNEWS_INDEX_PAGE_RE.search(urllib.parse.urlsplit(real).path):
+                skipped += 1
+                continue
             link = real
 
         content_html = ""

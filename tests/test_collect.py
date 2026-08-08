@@ -560,6 +560,27 @@ def test_parse_feed_prefilter():
     assert len(items) == 2 and skipped == 0
 
 
+def test_parse_feed_gnews_skips_index_pages(tmp_path):
+    """gnews 还原出的翻页归档页（/page/N）不入库（2026-08-08 artnet-news 实锤）。"""
+    from rebas.collect.feeds import parse_feed
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    database.gnews_cache_put(conn, "https://news.google.com/rss/articles/a1",
+                             "https://news.artnet.com/market/story-123")
+    database.gnews_cache_put(conn, "https://news.google.com/rss/articles/a2",
+                             "https://news.artnet.com/page/36?lid=")
+    rss = """<?xml version="1.0"?><rss version="2.0"><channel>
+      <item><title>Real Story - Artnet News</title>
+        <link>https://news.google.com/rss/articles/a1</link></item>
+      <item><title>Artnet PRO - Artnet News</title>
+        <link>https://news.google.com/rss/articles/a2</link></item>
+    </channel></rss>"""
+    src = make_source(id="g", type="gnews_rss", board="art")
+    items, skipped = parse_feed(src, rss, conn=conn, client=None)
+    assert [i.url for i in items] == ["https://news.artnet.com/market/story-123"]
+    assert skipped == 1
+
+
 def test_runner_fallback_channel(tmp_path, monkeypatch):
     """备用通道：主通道抛错同轮改走备用端点（解析器按 fallback_type）——条目照常
     入库、last_status=fallback、连败计数照记；主通道恢复后 ok 归零 + 重定向提示。"""
