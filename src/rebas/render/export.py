@@ -238,6 +238,10 @@ def _topic_meta(items: list) -> list[str]:
         meta.append(f"{int(sig['stars_today'])} STARS")
     if sig.get("hn_points"):
         meta.append(f"HN {int(sig['hn_points'])}")
+    if sig.get("or_growth_pct", 0) >= 50:      # 增速显著才展示（日常波动是噪声）
+        meta.append(f"OR ↑{int(sig['or_growth_pct'])}%")
+    elif sig.get("or_rank", 0) and sig.get("or_rank") <= 5:
+        meta.append(f"OR 榜 #{int(sig['or_rank'])}")
     if len(items) > 1:
         meta.append(f"{len(items)} 信源")
     return meta[:3]

@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from rebas import db
-from rebas.collect import arxiv, boards, feeds, hf, journals, reddit
+from rebas.collect import arxiv, boards, feeds, hf, journals, openrouter, reddit
 from rebas.collect.base import FetchResult, KeywordMatcher, fetch_url, make_client, utcnow_iso
 from rebas.config import Source, load_config, load_profile, load_sources
 
@@ -29,10 +29,13 @@ PARSERS = {
     "reddit_rss": reddit.parse_reddit_rss,
     "nitter_rss": feeds.parse_nitter_rss,
     "truth_rss": feeds.parse_truth_rss,
+    "openrouter_rankings": openrouter.parse_openrouter_rankings,
+    "openrouter_models": openrouter.parse_openrouter_models,
 }
 
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池
-REVIVE_DAYS = {"gh_trending": 14, "hf_models": 14}
+# （openrouter_models 是上架流非榜单，published_at=created 走正常窗口，不 revive）
+REVIVE_DAYS = {"gh_trending": 14, "hf_models": 14, "openrouter_rankings": 14}
 
 MAX_WORKERS = 8
 

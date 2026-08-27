@@ -449,6 +449,83 @@ def test_reddit_rss_parser():
     assert "reddit.com/r/LocalLLaMA/comments/ccc" in img_post.url   # redd.it 媒体≠外链
 
 
+# Next.js flight 形态：数据以转义 JSON 埋在 self.__next_f.push([1,"…"]) 的字符串里
+OPENROUTER_RANKINGS_FIXTURE = (
+    b'<html><script>self.__next_f.push([1,"noise"])</script>'
+    b'<script>self.__next_f.push([1,"{\\"initialRanking\\":{\\"rankingData\\":['
+    b'{\\"date\\":\\"2026-08-26 00:00:00\\",\\"model_permaslug\\":\\"stealth/ox-alpha\\",'
+    b'\\"total_completion_tokens\\":400000000000,\\"total_prompt_tokens\\":26600000000000,'
+    b'\\"count\\":343000000,\\"change\\":null},'
+    b'{\\"date\\":\\"2026-08-26 00:00:00\\",\\"model_permaslug\\":\\"z-ai/glm-5.3-20260816\\",'
+    b'\\"total_completion_tokens\\":30000000000,\\"total_prompt_tokens\\":900000000000,'
+    b'\\"count\\":11000000,\\"change\\":12.7},'
+    b'{\\"date\\":\\"2026-08-26 00:00:00\\",\\"model_permaslug\\":\\"ds/v4-flash-20260731\\",'
+    b'\\"total_completion_tokens\\":0,\\"total_prompt_tokens\\":400000000000,'
+    b'\\"count\\":5000000,\\"change\\":0.5},'
+    b'{\\"date\\":\\"2026-08-26 00:00:00\\",\\"model_permaslug\\":\\"ds/v4-flash-20260423\\",'
+    b'\\"total_completion_tokens\\":0,\\"total_prompt_tokens\\":100000000000,'
+    b'\\"count\\":1000000,\\"change\\":-0.9}'
+    b']}}"])</script></html>'
+)
+
+
+def test_openrouter_rankings_parser():
+    """flight 内嵌数据解析：名次按日 tokens 自算、permaslug 剥日期后缀、增速进信号；
+    榜单语义（kind=repo、published_at=None）与 gh_trending/hf_models 对齐。"""
+    from rebas.collect.openrouter import parse_openrouter_rankings
+
+    src = make_source(id="or-rank", type="openrouter_rankings", board="repos")
+    items, _ = parse_openrouter_rankings(src, OPENROUTER_RANKINGS_FIXTURE)
+    # tokens 降序；同 slug 双版本（ds/v4-flash）聚合成一条
+    assert [it.title for it in items] == ["stealth/ox-alpha", "z-ai/glm-5.3", "ds/v4-flash"]
+    ox, glm, ds = items
+    assert ox.url == "https://openrouter.ai/stealth/ox-alpha"        # 无日期后缀不剥
+    assert glm.url == "https://openrouter.ai/z-ai/glm-5.3"           # -20260816 剥掉
+    assert ox.signals["or_rank"] == 1 and "or_growth_pct" not in ox.signals  # change=null
+    assert glm.signals["or_growth_pct"] == 1270                      # 12.7 → +1270%
+    assert glm.signals["or_tokens_b"] == 930.0
+    assert "第 2 位" in glm.summary and "+1270%" in glm.summary
+    assert ox.kind == "repo" and ox.published_at is None             # 榜单窗口语义
+    assert ox.author == "stealth"
+    assert ds.signals["or_tokens_b"] == 500.0                        # 双版本 tokens 求和
+    assert ds.signals["or_requests_m"] == 6.0
+    assert ds.signals["or_growth_pct"] == 50                         # 增速取主导版本（0.5 非 -0.9）
+
+
+def test_openrouter_rankings_missing_data_raises():
+    """Next.js 构建产物改版（找不到 rankingData）必须抛错走 error 路径，不静默返回空。"""
+    import pytest
+
+    from rebas.collect.openrouter import parse_openrouter_rankings
+
+    src = make_source(id="or-rank", type="openrouter_rankings", board="repos")
+    with pytest.raises(RuntimeError, match="rankingData"):
+        parse_openrouter_rankings(src, b'<html>self.__next_f.push([1,"nothing here"])</html>')
+
+
+def test_openrouter_models_parser():
+    """目录流：created 七天窗过滤（老模型永不出条目）、published_at=created 走正常出刊窗。"""
+    import time as _time
+
+    from rebas.collect.openrouter import parse_openrouter_models
+
+    now = int(_time.time())
+    catalog = json.dumps({"data": [
+        {"id": "acme/nova-1", "name": "Acme: Nova 1", "created": now - 86400,
+         "description": "d" * 600, "context_length": 200000},
+        {"id": "old/model", "name": "Old", "created": now - 40 * 86400},
+    ]}).encode()
+    src = make_source(id="or-new", type="openrouter_models", board="repos")
+    items, _ = parse_openrouter_models(src, catalog)
+    assert len(items) == 1                                           # 老模型滤掉
+    it = items[0]
+    assert it.title == "Acme: Nova 1" and it.author == "acme"
+    assert it.url == "https://openrouter.ai/acme/nova-1"
+    assert it.published_at and it.published_at.endswith("+00:00")    # UTC ISO
+    assert len(it.summary) == 500                                    # 描述截断
+    assert it.signals["or_context"] == 200000 and it.kind == "repo"
+
+
 def test_paced_lane_source_parsing():
     """pace_seconds 配置加载 + 双车道分流语义（bool(pace) == paced）。"""
     from rebas.config import load_sources

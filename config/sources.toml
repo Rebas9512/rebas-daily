@@ -262,6 +262,31 @@ content = "headline"        # 模型 id + 下载量/点赞信号；开源模型�
 fetch_interval_hours = 12
 enabled = true
 
+# —— OpenRouter 双流（2026-08-26，vault 02 §15）——模型 API 市场的真实用量维度，
+# 与 HF trending（社区热度）/GH trending（代码热度）错位；两流条目按 url_canonical
+# （openrouter.ai/<model-id>）自然合并。rankings 依赖 Next.js flight 内嵌数据，改版
+# 会破=parse_error 连败可见，修解析即可；官方目录 API 不受影响。
+
+[[source]]
+id = "openrouter-rankings"
+board = "repos"
+name = "OpenRouter 用量趋势榜"
+type = "openrouter_rankings"
+endpoint = "https://openrouter.ai/rankings"
+content = "headline"        # Top-20 日用量榜：tokens/请求数/环比增速（or_* 信号）；
+fetch_interval_hours = 12   # 增速暴涨/神秘模型霸榜=趋势事件（editor.md 规则4、背调有专门口径）
+enabled = true
+
+[[source]]
+id = "openrouter-models"
+board = "repos"
+name = "OpenRouter 新模型上架"
+type = "openrouter_models"
+endpoint = "https://openrouter.ai/api/v1/models"
+content = "headline"        # 官方目录 created 时间戳滤出 7 天内新上架（含 stealth 预览模型），
+fetch_interval_hours = 8    # published_at=created 走正常出刊窗口；闭源模型上架的第一手信号
+enabled = true
+
 [[source]]
 id = "techcrunch-ai"
 board = "tech"
