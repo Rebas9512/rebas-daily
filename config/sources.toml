@@ -922,10 +922,47 @@ id = "voguebiz-gnews"
 board = "art"
 name = "Vogue Business (via Google News)"
 type = "gnews_rss"
-endpoint = "https://news.google.com/rss/search?q=site:voguebusiness.com&hl=en-US&gl=US&ceid=US:en"
+endpoint = "https://news.google.com/rss/search?q=site:voguebusiness.com+when:7d&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 12
-enabled = false             # 官方 RSS 404，Google News 兜底
+enabled = true              # 官方 RSS 404，Google News 兜底；2026-08-27 随时尚线重启
+                            # （当年 disabled 是画像时尚降权的编辑取向，非通道故障）
+
+# —— 时尚线重启（2026-08-27，vault 02 §5 补充）——用户要求把 Vogue 类加回来。
+# 双端×生产客户端实测五家全通：vogue.com 官方 feed 已复活（07-03 只测过 Vogue
+# Business）；Dazed/i-D 是全文级带图。配套 art 画像时尚 weight 2→3。
+# 备选未启用：vogue.co.uk（与美版同集团重叠）、harpersbazaar.com/rss/all.xml/
+# （50 条/轮 celebrity 密度高，需要更强的画像过滤再开）、wmagazine（无 feed）。
+
+[[source]]
+id = "vogue-us"
+board = "art"
+name = "Vogue"
+type = "rss"
+endpoint = "https://www.vogue.com/feed/rss"
+content = "headline"        # Condé 标准 feed，~29 条带图；导语级，入选走 lazy fetch
+fetch_interval_hours = 8
+enabled = true
+
+[[source]]
+id = "dazed"
+board = "art"
+name = "Dazed"
+type = "rss"
+endpoint = "https://www.dazeddigital.com/rss"
+content = "fulltext"        # 青年文化/时尚交叉，全文 ~3.7k 字符带图
+fetch_interval_hours = 8
+enabled = true
+
+[[source]]
+id = "i-d"
+board = "art"
+name = "i-D"
+type = "rss"
+endpoint = "https://i-d.co/feed/"
+content = "fulltext"        # 时尚文化，全文 ~10k 字符带图；~10 条池更新偏慢
+fetch_interval_hours = 12
+enabled = true
 
 # 已测不可用（2026-07-03）：Brand New(500)、Frieze(403)、e-flux(404)、
 # The Batch(404)、VentureBeat AI(feed 停更于 2026-05)。alphaXiv API 三次探测均 404。

@@ -19,8 +19,9 @@ keywords = ["architecture", "interior", "urban design", "pavilion"]
 
 [[interest]]
 name = "时尚产业"
-weight = 2
-keywords = ["fashion", "runway", "brand collaboration"]
+weight = 3                  # 2026-08-27 由 2 上调：时尚线重启（Vogue/Dazed/i-D 等源
+                            # 同日启用）——保持低于当代艺术/建筑（5），时尚只出大事
+keywords = ["fashion", "runway", "brand collaboration", "couture", "fashion week"]
 
 [low_priority]
 keywords = []
