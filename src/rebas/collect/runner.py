@@ -135,14 +135,15 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
         st = None if force else db.get_fetch_state(conn, s.id)
         jobs.append((s, st["etag"] if st else None, st["last_modified"] if st else None))
 
-    def _fetch_retry_5xx(client_, endpoint, *, etag, last_modified):
+    def _fetch_retry_5xx(client_, endpoint, *, etag, last_modified, user_agent=None):
         try:
-            return fetch_url(client_, endpoint, etag=etag, last_modified=last_modified)
+            return fetch_url(client_, endpoint, etag=etag, last_modified=last_modified,
+                             user_agent=user_agent)
         except urllib.error.HTTPError as e:
             if 500 <= e.code < 600:   # quantpedia 等偶发 5xx：退避一次再试
                 time.sleep(3)
                 return fetch_url(client_, endpoint, etag=etag,
-                                 last_modified=last_modified)
+                                 last_modified=last_modified, user_agent=user_agent)
             raise
 
     fetched: dict[str, FetchResult | Exception] = {}
@@ -156,7 +157,8 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
                 for attempt in (0, 1):
                     try:
                         fetched[s.id] = _fetch_retry_5xx(client, s.endpoint,
-                                                         etag=etag, last_modified=lm)
+                                                         etag=etag, last_modified=lm,
+                                                         user_agent=s.user_agent or None)
                         break
                     except urllib.error.HTTPError as exc:
                         # 429 = IP 配额被临近请求（手动跑/探测/上一轮尾部）烧掉：
@@ -173,7 +175,8 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
             with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
                 futs = {
                     ex.submit(_fetch_retry_5xx, client, s.endpoint,
-                              etag=etag, last_modified=lm): s
+                              etag=etag, last_modified=lm,
+                              user_agent=s.user_agent or None): s
                     for s, etag, lm in jobs
                 }
                 for fut in as_completed(futs):
@@ -195,7 +198,8 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
                 # 备用轮不写 etag（conditional GET 状态不跨端点）
                 if s.fallback_endpoint:
                     try:
-                        fb = fetch_url(client, s.fallback_endpoint)
+                        fb = fetch_url(client, s.fallback_endpoint,
+                                       user_agent=s.user_agent or None)
                         result = fb if fb.status != 304 else None
                     except Exception:  # noqa: BLE001 —— 备用也挂 → 走正常错误路径
                         result = None

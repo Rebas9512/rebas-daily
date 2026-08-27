@@ -166,17 +166,23 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
     return items, skipped
 
 
-# ---- nitter_rss：X 时间线的 Nitter 镜像（2026-07-06，慢车道源）----
-# 镜像实例（nitter.net）易死易换：条目 URL 一律改写回 x.com——刊物外链与
-# 去重键不依赖镜像；配图是实例代理 URL 同样不可靠，直接丢弃。
-_NITTER_HOST_RE = re.compile(r"^https?://nitter\.[^/]+", re.I)
+# ---- nitter_rss：X 时间线的 Nitter 类镜像（2026-07-06，慢车道源）----
+# 镜像实例易死易换（nitter.net RSS 2026-08-21 起 410 下线，切 rss.xcancel.com）：
+# 时间线 feed 里条目 URL 全在镜像域上（/<user>/status/<id>），按主机整体改写回
+# x.com——刊物外链与去重键不依赖具体镜像；配图是实例代理 URL 同样不可靠，直接丢弃。
+_MIRROR_HOST_RE = re.compile(r"^https?://[^/]+", re.I)
+_XCANCEL_BLOCKED_RE = re.compile(r"not yet whitelisted", re.I)
 
 
 def parse_nitter_rss(source: Source, data: bytes, *, conn=None, client=None,
                      **kw) -> tuple[list[RawItem], int]:
     items, extra = parse_feed(source, data, conn=conn, client=client, **kw)
+    # xcancel 拒答形态是 200 占位 feed（"RSS reader not yet whitelisted!"）而非 4xx——
+    # 若日后 UA 被移出白名单，不抛错就是纯静默断供。主动抛让它进 error 路径 admin 可见。
+    if any(_XCANCEL_BLOCKED_RE.search(it.title or "") for it in items):
+        raise RuntimeError("xcancel 占位 feed：RSS 阅读器 UA 不在白名单，源已静默断供")
     for it in items:
-        it.url = _NITTER_HOST_RE.sub("https://x.com", it.url).removesuffix("#m")
+        it.url = _MIRROR_HOST_RE.sub("https://x.com", it.url).removesuffix("#m")
         it.url_canonical = canonicalize_url(it.url)
         it.image_url = None
         it.image_urls = []

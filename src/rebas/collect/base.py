@@ -202,9 +202,12 @@ def make_client() -> HttpClient:
 
 
 def fetch_url(client: HttpClient, url: str, *, etag: str | None = None,
-              last_modified: str | None = None, retries: int = 2) -> FetchResult:
+              last_modified: str | None = None, retries: int = 2,
+              user_agent: str | None = None) -> FetchResult:
     """带 conditional GET 与重试的抓取。"""
     headers = {}
+    if user_agent:
+        headers["User-Agent"] = user_agent
     if etag:
         headers["If-None-Match"] = etag
     if last_modified:

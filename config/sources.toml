@@ -365,13 +365,21 @@ enabled = true
 # 但实例是志愿者运营、随时可能死（死了就是 error，admin 面板可见，不伤管线）。
 # nitter_rss 采集器把条目 URL 改写回 x.com——外链与去重不依赖镜像。慢车道 pace=120s。
 # 推文天然"仅标题级"→ 入选后由背调"新闻调查补充"联网补语境，正好咬合。
+# 2026-08-26 换镜像：nitter.net 的 RSS 端点 08-21 起 410 Gone（页面 200 活着，双端一致
+# =RSS 功能整体下线非 IP 拦截）→ 切 rss.xcancel.com（xcancel.com/<user>/rss 会 302 过去）。
+# xcancel 的 RSS 按"阅读器 UA 白名单"放行：浏览器 UA 拿到的是占位 feed（标题
+# "RSS reader not yet whitelisted!"），FreshRSS/TT-RSS 的 UA 双端实测过、Feedbin/
+# NetNewsWire 不行——user_agent 按源覆盖（本刊就是同类自托管阅读器，量级 9 账号×8h）。
+# 正规化备选：邮件 rss@xcancel.com 申请把自有 UA 加白（占位 feed 里带申请 ID）。
+# 复活条件：nitter.net /karpathy/rss 恢复 200 且有条目，可切回。
 
 [[source]]
 id = "x-karpathy"
 board = "tech"
 name = "X · Andrej Karpathy"
 type = "nitter_rss"
-endpoint = "https://nitter.net/karpathy/rss"
+endpoint = "https://rss.xcancel.com/karpathy/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -382,7 +390,8 @@ id = "x-sama"
 board = "tech"
 name = "X · Sam Altman"
 type = "nitter_rss"
-endpoint = "https://nitter.net/sama/rss"
+endpoint = "https://rss.xcancel.com/sama/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -393,7 +402,8 @@ id = "x-ylecun"
 board = "tech"
 name = "X · Yann LeCun"
 type = "nitter_rss"
-endpoint = "https://nitter.net/ylecun/rss"
+endpoint = "https://rss.xcancel.com/ylecun/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -404,7 +414,8 @@ id = "x-demis"
 board = "tech"
 name = "X · Demis Hassabis"
 type = "nitter_rss"
-endpoint = "https://nitter.net/demishassabis/rss"
+endpoint = "https://rss.xcancel.com/demishassabis/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -415,7 +426,8 @@ id = "x-andrewng"
 board = "tech"
 name = "X · Andrew Ng"
 type = "nitter_rss"
-endpoint = "https://nitter.net/AndrewYNg/rss"
+endpoint = "https://rss.xcancel.com/AndrewYNg/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -426,7 +438,8 @@ id = "x-elonmusk"
 board = "tech"
 name = "X · Elon Musk"
 type = "nitter_rss"
-endpoint = "https://nitter.net/elonmusk/rss"
+endpoint = "https://rss.xcancel.com/elonmusk/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8   # 高频账号：RSS 每次只给最新 ~20 条，取的是采样不是全量
 pace_seconds = 120
@@ -437,7 +450,8 @@ id = "x-anthropicai"
 board = "tech"
 name = "X · Anthropic 官方"
 type = "nitter_rss"
-endpoint = "https://nitter.net/AnthropicAI/rss"
+endpoint = "https://rss.xcancel.com/AnthropicAI/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -448,7 +462,8 @@ id = "x-cliffasness"
 board = "quant"
 name = "X · Cliff Asness (AQR)"
 type = "nitter_rss"
-endpoint = "https://nitter.net/CliffordAsness/rss"
+endpoint = "https://rss.xcancel.com/CliffordAsness/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -460,7 +475,8 @@ id = "x-bennpeifert"
 board = "quant"
 name = "X · Benn Eifert (QVR)"
 type = "nitter_rss"
-endpoint = "https://nitter.net/bennpeifert/rss"
+endpoint = "https://rss.xcancel.com/bennpeifert/rss"
+user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120

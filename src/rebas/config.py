@@ -47,6 +47,8 @@ class Source:
     fallback_type: str = ""       # 备用通道（2026-07-09 自修复兜底）：主通道抓取出错时
     fallback_endpoint: str = ""   # 同轮改走备用端点（解析器按 fallback_type，缺省同主通道）；
                                   # 供给不断、主通道病历（error_streak）照记。""=无备用
+    user_agent: str = ""          # 抓 feed 的 UA 覆盖（2026-08-26）：非空时替代全局浏览器 UA。
+                                  # xcancel 的 RSS 按阅读器 UA 白名单放行（浏览器 UA 反而拿占位 feed）
 
 
 @dataclass(frozen=True)

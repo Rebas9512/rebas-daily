@@ -459,6 +459,11 @@ def test_paced_lane_source_parsing():
     assert all(s.pace_seconds >= 60 for s in paced)        # 实测限速 ~1req/min，间隔须 ≥60s
     fast = {s.type for s in sources if not s.pace_seconds}
     assert not fast & {"reddit_rss", "nitter_rss"}         # 限速源绝不进并发快车道
+    # xcancel RSS 按阅读器 UA 白名单放行（2026-08-26）：浏览器 UA 只拿占位 feed，
+    # user_agent 覆盖是该通道的生存条件，掉了= 9 源静默空转
+    for s in sources:
+        if s.type == "nitter_rss":
+            assert "rss.xcancel.com" in s.endpoint and s.user_agent
 
 
 NITTER_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -471,21 +476,66 @@ NITTER_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
   <pubDate>Mon, 06 Jul 2026 08:00:00 GMT</pubDate>
   <description>&lt;p&gt;LLM agents are basically new operating systems&lt;/p&gt;</description>
 </item>
+<item>
+  <title>nanochat is out</title>
+  <dc:creator>@karpathy</dc:creator>
+  <link>https://rss.xcancel.com/karpathy/status/987654321#m</link>
+  <pubDate>Mon, 06 Jul 2026 09:00:00 GMT</pubDate>
+  <description>&lt;p&gt;nanochat is out&lt;/p&gt;</description>
+</item>
 </channel></rss>"""
 
 
 def test_nitter_rss_parser():
-    """条目 URL 改写回 x.com（镜像实例易死，外链与去重不依赖它）；实例代理图丢弃。"""
+    """条目 URL 按主机改写回 x.com——镜像无关（nitter.net 死后切 xcancel 的教训：
+    改写不能只认 nitter.* 域）；实例代理图丢弃。"""
     from rebas.collect.feeds import parse_nitter_rss
 
     src = make_source(id="x-t", type="nitter_rss", board="tech", pace_seconds=120)
     items, _ = parse_nitter_rss(src, NITTER_FIXTURE, conn=None, client=None)
-    assert len(items) == 1
-    it = items[0]
+    assert len(items) == 2
+    it, it2 = items
     assert it.url == "https://x.com/karpathy/status/123456789"      # 改写 + 剥 #m
     assert it.url_canonical.startswith("https://x.com/")
     assert it.image_url is None                                     # 代理图不入库
     assert it.author == "@karpathy"
+    assert it2.url == "https://x.com/karpathy/status/987654321"     # xcancel 域同样改写
+
+
+def test_nitter_rss_placeholder_feed_raises():
+    """xcancel 把 UA 移出白名单时返回 200 占位 feed（非 4xx）——必须抛错走 error 路径，
+    否则是 admin 看不到的静默断供。"""
+    import pytest
+
+    from rebas.collect.feeds import parse_nitter_rss
+
+    blocked = NITTER_FIXTURE.replace(
+        b"<title>LLM agents are basically new operating systems</title>",
+        b"<title>RSS reader not yet whitelisted!</title>")
+    src = make_source(id="x-t", type="nitter_rss", board="tech", pace_seconds=120)
+    with pytest.raises(RuntimeError, match="xcancel"):
+        parse_nitter_rss(src, blocked, conn=None, client=None)
+
+
+def test_fetch_url_user_agent_override():
+    """源级 user_agent 须落到请求头——xcancel 白名单通道的生存条件
+    （浏览器 UA 拿到的是 200 占位 feed，不报错、纯静默空转）。"""
+    from types import SimpleNamespace
+
+    from rebas.collect.base import fetch_url
+
+    seen: dict = {}
+
+    class StubClient:
+        def get(self, url, headers=None):
+            seen.update(headers or {})
+            return SimpleNamespace(status_code=200, content=b"ok", headers={}, url="")
+
+    r = fetch_url(StubClient(), "https://e/", user_agent="FreshRSS/1.24.0")
+    assert seen["User-Agent"] == "FreshRSS/1.24.0" and r.status == 200
+    seen.clear()
+    fetch_url(StubClient(), "https://e/")
+    assert "User-Agent" not in seen                       # 缺省不覆盖，走全局浏览器 UA
 
 
 TRUTH_FIXTURE = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -602,7 +652,8 @@ def test_runner_fallback_channel(tmp_path, monkeypatch):
     monkeypatch.setattr(runner, "load_sources", lambda enabled_only=False: [src])
     monkeypatch.setattr(runner, "load_profile", lambda b: profile)
 
-    def fake_fetch(client, url, *, etag=None, last_modified=None, retries=2):
+    def fake_fetch(client, url, *, etag=None, last_modified=None, retries=2,
+                   user_agent=None):
         if url == "https://primary/api":
             raise urllib.error.HTTPError(url, 400, "Bad Request", None, None)
         return FetchResult(status=200, data=RSS_FALLBACK_FIXTURE)
