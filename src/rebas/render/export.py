@@ -244,6 +244,10 @@ def _topic_meta(items: list) -> list[str]:
         meta.append(f"OR 榜 #{int(sig['or_rank'])}")
     if sig.get("trending_streak", 0) >= 3:     # 持续霸榜才值得展示
         meta.append(f"在榜 {int(sig['trending_streak'])} 天")
+    if abs(sig.get("pm_move_pp", 0)) >= 10:    # 盘口显著异动优先于静态概率
+        meta.append(f"盘口 {int(sig['pm_move_pp']):+d}pp")
+    elif sig.get("pm_prob") is not None:
+        meta.append(f"盘口 {int(sig['pm_prob'])}%")
     if len(items) > 1:
         meta.append(f"{len(items)} 信源")
     return meta[:3]

@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 from rebas import db
-from rebas.collect import arxiv, boards, feeds, hf, journals, openrouter, reddit
+from rebas.collect import (arxiv, boards, feeds, hf, journals, openrouter,
+                           prediction, reddit)
 from rebas.collect.base import FetchResult, KeywordMatcher, fetch_url, make_client, utcnow_iso
 from rebas.config import Source, load_config, load_profile, load_sources
 
@@ -31,11 +32,19 @@ PARSERS = {
     "truth_rss": feeds.parse_truth_rss,
     "openrouter_rankings": openrouter.parse_openrouter_rankings,
     "openrouter_models": openrouter.parse_openrouter_models,
+    "polymarket_events": prediction.parse_polymarket_events,
+    "kalshi_events": prediction.parse_kalshi_events,
 }
 
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池
 # （openrouter_models 是上架流非榜单，published_at=created 走正常窗口，不 revive）
-REVIVE_DAYS = {"gh_trending": 14, "hf_models": 14, "openrouter_rankings": 14}
+REVIVE_DAYS = {"gh_trending": 14, "hf_models": 14, "openrouter_rankings": 14,
+               "polymarket_events": 14, "kalshi_events": 14}
+
+# 预测市场（2026-08-27）：摘要=赔率快照须随 merge 刷新；已处理条目盘口异动
+# ≥N 百分点复位回候选池（见 db.insert_item）
+REFRESH_SUMMARY_TYPES = {"polymarket_events", "kalshi_events"}
+REARM_MOVE_PP = {"polymarket_events": 15, "kalshi_events": 15}
 
 MAX_WORKERS = 8
 
@@ -242,7 +251,10 @@ def run_collect(force: bool = False, paced: bool = False) -> list[SourceStats]:
                     stats.filtered_out = extra
                 revive = REVIVE_DAYS.get(parser_type)
                 for it in items:
-                    outcome = db.insert_item(conn, it, revive_days=revive)
+                    outcome = db.insert_item(
+                        conn, it, revive_days=revive,
+                        refresh_summary=parser_type in REFRESH_SUMMARY_TYPES,
+                        rearm_move_pp=REARM_MOVE_PP.get(parser_type))
                     setattr(stats, outcome, getattr(stats, outcome) + 1)
                 if on_fallback:
                     db.set_fetch_state(conn, s.id, etag=None, last_modified=None,

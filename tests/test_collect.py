@@ -96,6 +96,71 @@ def test_gh_trending_parser():
     assert it.summary == "A codex plugin."
 
 
+PM_EVENTS_FIXTURE = json.dumps([
+    {"slug": "fed-decision-september", "title": "Fed Decision in September?",
+     "volume24hr": 1745593.0, "endDate": "2026-09-16T18:00:00Z",
+     "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/fed.png",
+     "tags": [{"slug": "fed-rates"}, {"slug": "politics"}],
+     "markets": [
+         {"question": "Will the Fed cut 50bps?", "groupItemTitle": "50bp cut",
+          "volume24hr": 900000,
+          "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.01\", \"0.99\"]"},
+         {"question": "Will the Fed maintain rates?", "groupItemTitle": "No change",
+          "volume24hr": 500000,
+          "outcomes": "[\"Yes\", \"No\"]", "outcomePrices": "[\"0.78\", \"0.22\"]"},
+     ]},
+    {"slug": "mlb-game", "title": "Dodgers vs Braves", "volume24hr": 1900000.0,
+     "tags": [{"slug": "sports"}, {"slug": "mlb"}], "markets": []},
+    {"slug": "thin-market", "title": "Thin", "volume24hr": 900.0,
+     "tags": [{"slug": "politics"}], "markets": []},
+]).encode()
+
+
+def test_polymarket_events_parser():
+    """tag 黑名单滤体育赌局、量阈值滤薄盘；主市场按 24h 量选、首选项概率进 pm_prob。"""
+    from rebas.collect.prediction import parse_polymarket_events
+
+    src = make_source(id="pm-pol", type="polymarket_events", board="finance")
+    items, skipped = parse_polymarket_events(src, PM_EVENTS_FIXTURE)
+    assert len(items) == 1 and skipped == 2
+    it = items[0]
+    assert it.url == "https://polymarket.com/event/fed-decision-september"
+    # 多选项事件：领跑者按 Yes 价（78% 的 maintain），不是成交量最大的近清算杂项（99% No）
+    assert it.signals == {"pm_vol24_k": 1746, "pm_prob": 78}
+    assert "领跑 No change 78%、50bp cut 1%" in it.summary
+    assert "截至" in it.summary and "2026-09-16 截" in it.summary
+    assert it.published_at is None and it.image_url.endswith("fed.png")
+
+
+KALSHI_EVENTS_FIXTURE = json.dumps({"events": [
+    {"event_ticker": "KXFEDDECISION-26SEP", "title": "Fed decision in Sep 2026?",
+     "sub_title": "On Sep 16, 2026",
+     "markets": [
+         {"yes_sub_title": "Fed maintains rate", "last_price_dollars": "0.69",
+          "volume_24h_fp": "115466.44", "open_interest_fp": "500"},
+         {"yes_sub_title": "Cut 25bps", "last_price_dollars": "0.01",
+          "volume_24h_fp": "74518.87", "open_interest_fp": "300"},
+     ]},
+    {"event_ticker": "KXDEAD-1", "title": "Dead market",
+     "markets": [{"yes_sub_title": "Yes", "last_price_dollars": "0.99",
+                  "volume_24h_fp": "3.00"}]},
+]}).encode()
+
+
+def test_kalshi_events_parser():
+    """事件级成条；主市场按 24h 量选（maintain 非 cut）；死盘被量阈值滤掉。"""
+    from rebas.collect.prediction import parse_kalshi_events
+
+    src = make_source(id="kalshi-fed", type="kalshi_events", board="finance")
+    items, skipped = parse_kalshi_events(src, KALSHI_EVENTS_FIXTURE)
+    assert len(items) == 1 and skipped == 1
+    it = items[0]
+    assert it.title == "Fed decision in Sep 2026?（On Sep 16, 2026）"
+    assert it.url == "https://kalshi.com/markets/KXFEDDECISION-26SEP"
+    assert it.signals["pm_prob"] == 69                       # 主市场=量最大的 maintain
+    assert "Fed maintains rate 69%" in it.summary and "Cut 25bps 1%" in it.summary
+
+
 HF_MODELS_FIXTURE = json.dumps([
     {"id": "acme/nova-7b", "downloads": 12000, "likes": 300,
      "trendingScore": 98, "pipeline_tag": "text-generation"},
@@ -188,6 +253,34 @@ class TestInsertSemantics:
         database.insert_item(conn2, self._item(signals={"hf_upvotes": 30}))
         sig2 = json.loads(conn2.execute("SELECT signals FROM raw_items").fetchone()["signals"])
         assert sig2["hf_upvotes_growth_pct"] == 200 and "trending_streak" not in sig2
+
+    def test_pm_move_and_rearm(self, tmp_path):
+        """盘口异动重激活：已处理条目 |pm_move_pp|≥阈值复位回候选池；小幅波动不动。"""
+        conn = database.init_db(tmp_path / "t.sqlite")
+        database.insert_item(conn, self._item(signals={"pm_prob": 30}),
+                             revive_days=14, rearm_move_pp=15)
+        conn.execute("UPDATE raw_items SET status='dropped'")
+        out = database.insert_item(conn, self._item(signals={"pm_prob": 60}),
+                                   revive_days=14, rearm_move_pp=15)
+        assert out == "revived"                              # +30pp ≥ 15 → 重激活
+        row = conn.execute("SELECT status, signals FROM raw_items").fetchone()
+        assert row["status"] == "new"
+        assert json.loads(row["signals"])["pm_move_pp"] == 30
+        conn.execute("UPDATE raw_items SET status='dropped'")
+        out = database.insert_item(conn, self._item(signals={"pm_prob": 62}),
+                                   revive_days=14, rearm_move_pp=15)
+        assert out == "merged"                               # +2pp 只刷信号不复位
+        assert conn.execute("SELECT status FROM raw_items").fetchone()["status"] == "dropped"
+
+    def test_refresh_summary(self, tmp_path):
+        """预测市场摘要=赔率快照：refresh_summary 源 merge 时整体刷新，普通源只填空。"""
+        conn = database.init_db(tmp_path / "t.sqlite")
+        database.insert_item(conn, self._item(summary="盘口 30%"))
+        out = database.insert_item(conn, self._item(summary="盘口 60%"),
+                                   refresh_summary=True)
+        assert out == "merged"
+        assert conn.execute("SELECT summary FROM raw_items").fetchone()["summary"] == "盘口 60%"
+        assert database.insert_item(conn, self._item(summary="盘口 99%")) == "dup"  # 无 flag 不覆盖
 
     def test_trend_stale_baseline_guard(self, tmp_path):
         """断档（>2 天）守卫：revive 级旧基线不算环比且清掉陈旧值、streak 重置——

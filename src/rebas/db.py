@@ -178,6 +178,9 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 _TREND_KEYS = {"hf_downloads": "hf_downloads_growth_pct",
                "hf_likes": "hf_likes_growth_pct",
                "hf_upvotes": "hf_upvotes_growth_pct"}
+# 绝对值变动键（2026-08-27 预测市场）：概率类信号看百分点差而非环比（30%→45% 是
+# +15pp 而不是 +50%）；同享基线新鲜度守卫
+_TREND_ABS_KEYS = {"pm_prob": "pm_move_pp"}
 
 
 def _apply_trend_signals(new_signals: dict, old: dict, incoming: dict,
@@ -194,6 +197,12 @@ def _apply_trend_signals(new_signals: dict, old: dict, incoming: dict,
             new_signals[growth] = round((incoming[base] - prev) / prev * 100)
         elif gap > 2:
             new_signals.pop(growth, None)
+    for base, move in _TREND_ABS_KEYS.items():
+        prev = old.get(base)
+        if gap <= 2 and base in incoming and isinstance(prev, (int, float)):
+            new_signals[move] = round(incoming[base] - prev)
+        elif gap > 2:
+            new_signals.pop(move, None)
     if leaderboard:
         streak = old.get("trending_streak") or 1
         if gap == 0:
@@ -204,12 +213,18 @@ def _apply_trend_signals(new_signals: dict, old: dict, incoming: dict,
             new_signals["trending_streak"] = 1             # 断档重置
 
 
-def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) -> str:
+def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None,
+                refresh_summary: bool = False,
+                rearm_move_pp: int | None = None) -> str:
     """入库一条 RawItem。返回结果类型：
     new     首次入库
     merged  已存在，但合并了新的信号/摘要/图片（如 HF papers 补充 arXiv 条目的热度）
-    revived 已存在且超出 revive 窗口（榜单类源重新上榜）→ 重置为 new 待处理
+    revived 已存在且超出 revive 窗口（榜单类源重新上榜）→ 重置为 new 待处理；
+            预测市场盘口异动重激活（|pm_move_pp| ≥ rearm_move_pp）同走此口径
     dup     已存在，无事发生
+
+    refresh_summary：摘要是活数据快照（预测市场赔率）的源，merge 时整体刷新摘要
+    而非只填空——写作期拿到的才是新盘口。
     """
     import json
     from datetime import datetime, timedelta, timezone
@@ -240,17 +255,20 @@ def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) ->
         updates: list[str] = []
         params: list = []
         merged = False
+        move_pp = None
         if it.signals:
             old = json.loads(row["signals"] or "{}")
             new_signals = {**old, **it.signals}
             _apply_trend_signals(new_signals, old, it.signals,
                                  row["last_seen_at"] or row["fetched_at"] or "",
                                  now, leaderboard=revive_days is not None)
+            move_pp = new_signals.get("pm_move_pp")
             if new_signals != old:
                 updates.append("signals = ?")
                 params.append(json.dumps(new_signals, ensure_ascii=False))
                 merged = True
-        if it.summary and not row["summary"]:
+        if it.summary and (not row["summary"]
+                           or (refresh_summary and it.summary != row["summary"])):
             updates.append("summary = ?")
             params.append(it.summary)
             merged = True
@@ -273,6 +291,13 @@ def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) ->
                 updates.extend(["fetched_at = ?", "status = 'new'"])
                 params.append(now.isoformat(timespec="seconds"))
                 revived = True
+        # 盘口异动重激活（2026-08-27 预测市场）：已处理条目的概率剧烈变动=有新事件
+        # 发生，复位回候选池重过粗筛/主编——否则一次落选后盘口再怎么摆都进不了刊
+        if (rearm_move_pp and not revived and row["status"] != "new"
+                and move_pp is not None and abs(move_pp) >= rearm_move_pp):
+            updates.extend(["fetched_at = ?", "status = 'new'"])
+            params.append(now.isoformat(timespec="seconds"))
+            revived = True
         updates.append("last_seen_at = ?")
         params.append(now.isoformat(timespec="seconds"))
         params.append(row["id"])

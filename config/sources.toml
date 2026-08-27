@@ -718,6 +718,62 @@ content = "headline"
 fetch_interval_hours = 6
 enabled = true
 
+# —— 预测市场（2026-08-27，vault 02 §16）——赔率=真金押注的群体预测（类民调），
+# 盘口剧烈异动=趋势事件（≥15pp 重激活已处理条目，摘要快照随 merge 刷新，见 runner）。
+# Polymarket=热点发现（gamma API tag 流按 24h 交易量，tag 黑名单滤体育/娱乐赌局）；
+# Kalshi=定点宏观盘（公开端点无热度排序——order_by 静默忽略，2026-08-27 实测；
+# 一源一系列同 openalex_journal 先例）。
+
+[[source]]
+id = "polymarket-politics"
+board = "finance"
+name = "Polymarket 热点盘 · 政治/地缘"
+type = "polymarket_events"
+endpoint = "https://gamma-api.polymarket.com/events?limit=20&order=volume24hr&ascending=false&closed=false&tag_slug=politics"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "polymarket-economy"
+board = "finance"
+name = "Polymarket 热点盘 · 宏观/经济"
+type = "polymarket_events"
+endpoint = "https://gamma-api.polymarket.com/events?limit=20&order=volume24hr&ascending=false&closed=false&tag_slug=economy"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "kalshi-fed"
+board = "finance"
+name = "Kalshi 盘口 · FOMC 决议"
+type = "kalshi_events"
+endpoint = "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXFEDDECISION&status=open&with_nested_markets=true&limit=6"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true
+
+[[source]]
+id = "kalshi-cpi"
+board = "finance"
+name = "Kalshi 盘口 · CPI 通胀"
+type = "kalshi_events"
+endpoint = "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXCPIYOY&status=open&with_nested_markets=true&limit=6"
+content = "headline"       # 月度系列：出刊期之间交易稀薄被量阈值滤掉是常态
+fetch_interval_hours = 12
+enabled = true
+
+[[source]]
+id = "kalshi-recession"
+board = "finance"
+name = "Kalshi 盘口 · 衰退概率"
+type = "kalshi_events"
+endpoint = "https://api.elections.kalshi.com/trade-api/v2/events?series_ticker=KXRECSSNBER&status=open&with_nested_markets=true&limit=6"
+content = "headline"
+fetch_interval_hours = 12
+enabled = true
+
 [[source]]
 id = "gnews-reuters-mkt"
 board = "finance"

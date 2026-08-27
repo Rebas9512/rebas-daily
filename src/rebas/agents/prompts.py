@@ -18,6 +18,7 @@ _SIGNAL_KEYS = ("hf_upvotes", "hn_points", "stars_today", "hf_likes",
                 "hf_downloads_growth_pct", "hf_likes_growth_pct",
                 "hf_upvotes_growth_pct",                    # 较上次上榜的环比（db 层 merge 时算）
                 "or_rank", "or_tokens_b", "or_growth_pct",  # OpenRouter 用量榜（趋势事件信号）
+                "pm_prob", "pm_move_pp", "pm_vol24_k",      # 预测市场盘口（Polymarket/Kalshi）
                 "oa_hindex", "oa_inst", "oa_paper_cites",   # OpenAlex 增补（enrich 阶段）
                 "venue")                                    # 顶刊来源（主编可见=天然加权）
 
