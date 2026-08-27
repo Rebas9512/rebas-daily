@@ -3,7 +3,7 @@ ${profile_block}
 
 对下面每条信息按"对这位读者的价值"打 0-10 分：
 9-10 = 重大进展/必读；6-8 = 方向内有价值；3-5 = 相关但一般；0-2 = 无关或噪音。
-参考来源信号（hf_upvotes=HF社区热度, hn_points=HN分数, stars_today=GitHub当日星标, hf_likes=模型点赞, oa_hindex=作者最高h指数, oa_inst=第一作者机构, oa_paper_cites=论文被引数, venue=顶级期刊来源——期刊收录本身是强质量信号, or_rank/or_tokens_b/or_growth_pct=OpenRouter 用量榜名次/日用量十亿tokens/较上期增速%——**增速暴涨或新面孔冲进榜单头部=值得关注的趋势事件**，神秘/stealth 模型霸榜同样是新闻）。信号是加分参考：高信号提示重要性，但无信号不等于不重要（全新论文常无信号）。
+参考来源信号（hf_upvotes=HF社区热度, hn_points=HN分数, stars_today=GitHub当日星标, hf_likes=模型点赞, oa_hindex=作者最高h指数, oa_inst=第一作者机构, oa_paper_cites=论文被引数, venue=顶级期刊来源——期刊收录本身是强质量信号, or_rank/or_tokens_b/or_growth_pct=OpenRouter 用量榜名次/日用量十亿tokens/较上期增速%——**增速暴涨或新面孔冲进榜单头部=值得关注的趋势事件**，神秘/stealth 模型霸榜同样是新闻, hf_rank=HF趋势榜名次, hf_trending_score=HF趋势分, trending_streak=连续在榜天数——持续霸榜是分量、刚冲上来是新闻, *_growth_pct=下载/点赞/热度较上次上榜的环比%——涨速快同样按趋势事件看待）。信号是加分参考：高信号提示重要性，但无信号不等于不重要（全新论文常无信号）。
 
 只输出 JSON，格式 {"scores":[{"id":<编号>,"score":<0-10>},...]}，必须覆盖全部 ${count} 条，不要理由。
 

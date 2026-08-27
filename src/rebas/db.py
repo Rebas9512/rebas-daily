@@ -172,6 +172,38 @@ def init_db(db_path: Path) -> sqlite3.Connection:
 
 # ---------- raw_items ----------
 
+# 榜单趋势信号（2026-08-26）：merge 时与上次上榜的旧值求环比（涨速），并记连续在榜
+# 天数。环比只在基线新鲜（断档 ≤2 天）时算——revive 级别的旧基线会把几周的正常累积
+# 算成暴涨；断档后陈旧的环比键一并清掉。streak 只对榜单源（revive_days 非 None）记。
+_TREND_KEYS = {"hf_downloads": "hf_downloads_growth_pct",
+               "hf_likes": "hf_likes_growth_pct",
+               "hf_upvotes": "hf_upvotes_growth_pct"}
+
+
+def _apply_trend_signals(new_signals: dict, old: dict, incoming: dict,
+                         last_seen: str, now, leaderboard: bool) -> None:
+    from datetime import date
+    try:
+        gap = (now.date() - date.fromisoformat((last_seen or "")[:10])).days
+    except ValueError:
+        gap = 999
+    for base, growth in _TREND_KEYS.items():
+        prev = old.get(base)
+        if (gap <= 2 and base in incoming
+                and isinstance(prev, (int, float)) and prev > 0):
+            new_signals[growth] = round((incoming[base] - prev) / prev * 100)
+        elif gap > 2:
+            new_signals.pop(growth, None)
+    if leaderboard:
+        streak = old.get("trending_streak") or 1
+        if gap == 0:
+            new_signals["trending_streak"] = streak        # 同日重抓不加
+        elif gap == 1:
+            new_signals["trending_streak"] = streak + 1
+        else:
+            new_signals["trending_streak"] = 1             # 断档重置
+
+
 def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) -> str:
     """入库一条 RawItem。返回结果类型：
     new     首次入库
@@ -211,6 +243,9 @@ def insert_item(conn: sqlite3.Connection, it, revive_days: int | None = None) ->
         if it.signals:
             old = json.loads(row["signals"] or "{}")
             new_signals = {**old, **it.signals}
+            _apply_trend_signals(new_signals, old, it.signals,
+                                 row["last_seen_at"] or row["fetched_at"] or "",
+                                 now, leaderboard=revive_days is not None)
             if new_signals != old:
                 updates.append("signals = ?")
                 params.append(json.dumps(new_signals, ensure_ascii=False))

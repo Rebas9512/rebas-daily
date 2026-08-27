@@ -46,12 +46,13 @@ def parse_models(source: Source, data: bytes, **_) -> tuple[list[RawItem], int]:
     """HF Trending Models。kind=repo；同一模型持续在榜由 revive 窗口去重。"""
     entries = json.loads(data)
     items: list[RawItem] = []
-    for m in entries:
+    for rank, m in enumerate(entries, 1):
         mid = m.get("id") or m.get("modelId")
         if not mid:
             continue
         url = f"https://huggingface.co/{mid}"
         signals = {k: v for k, v in {
+            "hf_rank": rank,          # API 按 trendingScore 排序，返回顺序即榜内名次
             "hf_downloads": m.get("downloads"),
             "hf_likes": m.get("likes"),
             "hf_trending_score": m.get("trendingScore"),

@@ -96,6 +96,26 @@ def test_gh_trending_parser():
     assert it.summary == "A codex plugin."
 
 
+HF_MODELS_FIXTURE = json.dumps([
+    {"id": "acme/nova-7b", "downloads": 12000, "likes": 300,
+     "trendingScore": 98, "pipeline_tag": "text-generation"},
+    {"id": "beta/mini-2", "downloads": 500, "likes": 20, "trendingScore": 55},
+]).encode()
+
+
+def test_hf_models_parser():
+    """趋势榜返回顺序即名次（API 按 trendingScore 排序）；榜单窗口语义不设 published_at。"""
+    from rebas.collect import hf
+
+    items, _ = hf.parse_models(make_source(id="hf-m", type="hf_models", board="repos"),
+                               HF_MODELS_FIXTURE)
+    assert [it.signals["hf_rank"] for it in items] == [1, 2]
+    top = items[0]
+    assert top.title == "acme/nova-7b" and top.kind == "repo"
+    assert top.published_at is None
+    assert top.signals["hf_trending_score"] == 98
+
+
 class TestInsertSemantics:
     def _item(self, **kw):
         defaults = dict(source_id="t", board="academic", url="https://arxiv.org/abs/1",
@@ -139,6 +159,54 @@ class TestInsertSemantics:
         # 未过窗口的处理过条目 → 保持 dup
         conn.execute("UPDATE raw_items SET status='dropped'")
         assert database.insert_item(conn, self._item(), revive_days=14) == "dup"
+
+    def _signals(self, conn):
+        return json.loads(conn.execute("SELECT signals FROM raw_items").fetchone()["signals"])
+
+    def test_trend_growth_and_streak(self, tmp_path):
+        """榜单趋势信号（2026-08-26）：环比=较上次上榜旧值的涨速；streak 同日不加、
+        隔日 +1；环比每次重算（数值没动就归 0，不留陈旧涨幅）。"""
+        conn = database.init_db(tmp_path / "t.sqlite")
+        database.insert_item(conn, self._item(signals={"hf_downloads": 1000}),
+                             revive_days=14)
+        out = database.insert_item(conn, self._item(signals={"hf_downloads": 1500}),
+                                   revive_days=14)
+        assert out == "merged"
+        sig = self._signals(conn)
+        assert sig["hf_downloads_growth_pct"] == 50
+        assert sig["trending_streak"] == 1                       # 同日重抓不加
+        y = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(timespec="seconds")
+        conn.execute("UPDATE raw_items SET last_seen_at=?", (y,))
+        database.insert_item(conn, self._item(signals={"hf_downloads": 1500}),
+                             revive_days=14)
+        sig = self._signals(conn)
+        assert sig["trending_streak"] == 2                       # 隔日在榜 +1
+        assert sig["hf_downloads_growth_pct"] == 0               # 重算覆盖陈旧的 50
+        # 非榜单源（revive_days=None）只算环比不记 streak
+        conn2 = database.init_db(tmp_path / "t2.sqlite")
+        database.insert_item(conn2, self._item(signals={"hf_upvotes": 10}))
+        database.insert_item(conn2, self._item(signals={"hf_upvotes": 30}))
+        sig2 = json.loads(conn2.execute("SELECT signals FROM raw_items").fetchone()["signals"])
+        assert sig2["hf_upvotes_growth_pct"] == 200 and "trending_streak" not in sig2
+
+    def test_trend_stale_baseline_guard(self, tmp_path):
+        """断档（>2 天）守卫：revive 级旧基线不算环比且清掉陈旧值、streak 重置——
+        否则几周的正常累积会被算成暴涨。"""
+        conn = database.init_db(tmp_path / "t.sqlite")
+        database.insert_item(conn, self._item(signals={"hf_downloads": 1000}),
+                             revive_days=14)
+        database.insert_item(conn, self._item(signals={"hf_downloads": 1100}),
+                             revive_days=14)
+        assert self._signals(conn)["hf_downloads_growth_pct"] == 10
+        old = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
+        conn.execute("UPDATE raw_items SET status='dropped', last_seen_at=?, fetched_at=?",
+                     (old, old))
+        out = database.insert_item(conn, self._item(signals={"hf_downloads": 5000}),
+                                   revive_days=14)
+        assert out == "revived"
+        sig = self._signals(conn)
+        assert "hf_downloads_growth_pct" not in sig              # 陈旧环比清掉且不重算
+        assert sig["trending_streak"] == 1 and sig["hf_downloads"] == 5000
 
 
 def test_all_images():

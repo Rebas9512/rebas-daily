@@ -242,6 +242,8 @@ def _topic_meta(items: list) -> list[str]:
         meta.append(f"OR ↑{int(sig['or_growth_pct'])}%")
     elif sig.get("or_rank", 0) and sig.get("or_rank") <= 5:
         meta.append(f"OR 榜 #{int(sig['or_rank'])}")
+    if sig.get("trending_streak", 0) >= 3:     # 持续霸榜才值得展示
+        meta.append(f"在榜 {int(sig['trending_streak'])} 天")
     if len(items) > 1:
         meta.append(f"{len(items)} 信源")
     return meta[:3]
