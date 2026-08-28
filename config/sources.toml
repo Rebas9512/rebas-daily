@@ -400,9 +400,13 @@ enabled = true
 # 2026-08-27 xcancel 收紧：白名单从"已知阅读器 UA"改为**逐阅读器邮件申请制**——
 # FreshRSS/TT-RSS/Miniflux/NewsBlur/Feedbin/Akregator 全 UA 占位 feed（本机实测），
 # 期间还闪过一轮 410（志愿者实例行为反复）；备选镜像生态全灭（lightbrd/space/
-# kareem 403、tiekoetter 429、privacyredirect 502、poast DNS 死）。处置：UA 换成
-# 自有署名（与加白申请一致），保持 enabled——获批即自动复活，零人工；申请 ID 从
-# VPS 出口取（可能绑 IP）。若一周未获批再 disable 止噪。
+# kareem 403、tiekoetter 429、privacyredirect 502、poast DNS 死）。
+# 2026-08-27（二）真相与终局：xcancel.com/about 公告 **08-24 收到 X Corp 的
+# cease-and-desist 停止函，服务无限期停摆**（410/占位反复横跳原来是停摆过程）。
+# 加白邮件不发了（草稿留在用户 Gmail），9 源禁源止噪。X 直连自此全线无通道：
+# nitter 生态死于 API 封锁、最大幸存实例死于法务。复活条件：xcancel 恢复服务，
+# 或出现新的可用镜像（探测剧本：<实例>/karpathy/rss 双端 200 且有条目），
+# 或 Reddit OAuth 式官方低价通道出现。UA 保留自有署名 rebas-daily/1.0 不回改。
 
 [[source]]
 id = "x-karpathy"
@@ -414,7 +418,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-sama"
@@ -426,7 +430,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-ylecun"
@@ -438,7 +442,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-demis"
@@ -450,7 +454,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-andrewng"
@@ -462,7 +466,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-elonmusk"
@@ -474,7 +478,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8   # 高频账号：RSS 每次只给最新 ~20 条，取的是采样不是全量
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-anthropicai"
@@ -486,7 +490,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）
 
 [[source]]
 id = "x-cliffasness"
@@ -498,7 +502,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true              # 2026-07-08 quant 扩源：AQR 创始人，因子投资第一意见领袖；
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）              # 2026-07-08 quant 扩源：AQR 创始人，因子投资第一意见领袖；
                             # AQR 官网无 RSS（/rss /Insights/feed 均 HTML），X 是其研究观点主出口
 
 [[source]]
@@ -511,7 +515,7 @@ user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
-enabled = true              # 2026-07-08 quant 扩源：QVR 创始人，波动率/衍生品从业者视角，
+enabled = false             # 2026-08-27 禁源：xcancel 收 X Corp 停止函停摆（见上方注释）              # 2026-07-08 quant 扩源：QVR 创始人，波动率/衍生品从业者视角，
                             # 补画像"衍生品"维度（现有源几乎不产该类候选）
 
 # 川普主阵地是 Truth Social 非 X（X 号只偶发转帖，不接防双报）。
@@ -1926,6 +1930,94 @@ enabled = true              # D&AD(Pencil 5月+Black Pencil 9月)/ADC 年奖(5�
                             # 闲聊噪音靠粗筛。放弃项：Cannes Lions(常年噪音>信号，6月
                             # 脉冲媒体源必报)、Tokyo TDC(日文纯标题)、One Club 裸查(高
                             # 尔夫噪音)
+
+# —— 奖项信号层·科技/商业/量化（2026-08-27（二），vault 02 §17 补充）——
+# 放弃项依据：Breakthrough Prize(gnews 掺入即带富豪传记噪音 3→18 条，大媒体必报)、
+# ACM 全系官网(WAF 按 IP 拦，curl 同 403 非指纹)、IEEE 官网(202 排队页/403)、
+# 经济学诺奖专查(淡季全是散提噪音，主 feed+财经媒体覆盖)、FT 图书奖(ft-home 必报
+# 自家奖)、Risk Awards/QOTY(risknet 全站 feed 天然覆盖，11 月下旬出结果)、
+# Fortune 500/Forbes 400/TIME100(惯用语污染 60+ 条/月，信噪比不合格)。
+
+[[source]]
+id = "nobel-prize"
+board = "tech"
+name = "Nobel Prize (官方)"
+type = "rss"
+endpoint = "https://www.nobelprize.org/feed/"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # nobelprize.org 主 feed（WP，content:encoded 全文带图，
+                            # 月级数条）：10 月诺贝尔周一手公告原文主战场（物理/化学
+                            # 近年多次颁给 AI/半导体）；平日访谈科普与和平/文学奖靠
+                            # 粗筛按画像过滤。经济学奖无独立分类 feed，本 feed 兼覆盖
+
+[[source]]
+id = "kyoto-prize"
+board = "tech"
+name = "Kyoto Prize (官方)"
+type = "rss"
+endpoint = "https://www.kyotoprize.org/en/feed/"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # 京都赏（尖端技术部门=工程/信息科学最高荣誉之一）官方
+                            # feed：6 月中公告+11 月颁奖，content:encoded 全文带图；
+                            # 西方媒体覆盖薄=防漏报典型对象。feed 混三部门（含艺术
+                            # 哲学）靠粗筛过滤
+
+[[source]]
+id = "gnews-tech-awards"
+board = "tech"
+name = "科技大奖 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Turing+Award%22+OR+%22ACM+Prize+in+Computing%22+OR+%22IEEE+Medal+of+Honor%22+OR+%22Queen+Elizabeth+Prize+for+Engineering%22+OR+%22Millennium+Technology+Prize%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # 图灵奖(3月中)/ACM Prize(4月)/IEEE MoH(1月初 CES)/
+                            # QEPrize(2月初)/千年技术奖(两年届)五奖合并防漏报；
+                            # 实测 7d=3 30d=16 零跨领域假阳性。刻意排除 Breakthrough
+                            # Prize（掺入即污染）与 Kyoto Prize（已有官方 feed+同名
+                            # 污染）。淡季是得主软新闻，公告脉冲是主载荷
+
+[[source]]
+id = "gnews-clark-medal"
+board = "finance"
+name = "John Bates Clark Medal (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22John+Bates+Clark+Medal%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # 经济学"小诺奖"（AEA，4 月上旬公告）：官方 aeaweb.org 全站
+                            # 无 RSS，媒体覆盖不稳=防漏报场景；短语唯一零污染，淡季
+                            # ~4 条/月散提靠粗筛。勿与 Loeb 合并（实测召回损失一半）
+
+[[source]]
+id = "gnews-loeb-awards"
+board = "finance"
+name = "Gerald Loeb Awards (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Loeb+Awards%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # 商业财经新闻最高奖（"财经界普利策"，UCLA Anderson）：
+                            # finalists 6-7 月、winners 10 月上旬（2026=10/8）——年度
+                            # 最佳商业报道盘点是编辑信号。**必须用复数短语**（单数
+                            # "Gerald Loeb Award" 被 "award-winning journalist" 正文
+                            # 提及污染）；实测 7d=6 全相关。官方通道=全校级 feed 被
+                            # 校园内容挤出窗口，不可用
+
+[[source]]
+id = "afa-news"
+board = "quant"
+name = "American Finance Association"
+type = "rss"
+endpoint = "https://afajof.org/news/feed/"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true              # AFA 学会新闻 feed（~1.4 条/月零噪音）：Fischer Black
+                            # Prize（金融学"小诺奖"，奇数年 1 月）+ Brattle/DFA/
+                            # Future of Finance 等 AFA 系奖项一手公告；媒体覆盖薄=
+                            # 防漏报对象。**站点主 /feed/ 停更于 2022 勿用，必须
+                            # /news/feed/**
 
 # ---- 艺术板块：欧洲建筑/设计权威 ----
 

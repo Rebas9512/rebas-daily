@@ -43,6 +43,14 @@ name = "AI 安全 / 政策"
 weight = 3
 keywords = ["safety", "alignment", "policy", "copyright", "governance"]
 
+[[interest]]
+name = "科学与技术大奖"
+weight = 4                  # 2026-08-27 奖项信号层：nobel-prize/kyoto-prize/
+                            # gnews-tech-awards 三源接入——得主/公告是硬新闻
+                            # （10 月诺贝尔周、3 月图灵奖）；获奖者软新闻与
+                            # 企业"荣获 XX 奖"通稿不在此列
+keywords = ["Nobel Prize", "Turing Award", "Kyoto Prize", "laureate", "prize", "medal"]
+
 [low_priority]
 keywords = ["crypto", "web3", "metaverse"]
 

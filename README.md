@@ -17,7 +17,7 @@
 
 每天达拉斯时间零点，[rebasdaily.com](https://rebasdaily.com) 自动出一期新刊：**学术 / 开源 / 科技 / 数据 / 商业 / 量化 / 设计 / 艺术** 八个板块，190+ 信息源的数百条候选被蒸馏成 60~80 篇中文报道——选题、交叉核查、背景铺垫、撰写、排版、部署，全程无人参与。
 
-信息源是**国际视野**的：从 arXiv、Nature/Science 等顶刊、Bloomberg/WSJ 等财经大刊的标题层、硅谷公司博客，到中国 AI 媒体（DeepSeek 生态）、日欧设计杂志与七领域国际大奖（红点、普利兹克、World Press Photo、Turner Prize、LVMH Prize 这些产品/建筑/摄影/艺术/时尚/平面的权威奖项，官方 feed 与新闻流双通道），再到 Reddit 日榜与 X 上的行业人物——中英日多语言、网页/API/社交媒体多形态进同一条管线（下游 LLM 语言无关），统一产出中文刊物。除新闻流外还接入了**趋势与信号层**：GitHub/Hugging Face/OpenRouter 三类榜单（社区热度、代码热度、API 市场真实用量互相印证，涨速与在榜时长都是选题信号），以及 Polymarket/Kalshi 预测市场盘口（赔率=真金押注的群体预测，剧烈异动自动重新入池成题）。
+信息源是**国际视野**的：从 arXiv、Nature/Science 等顶刊、Bloomberg/WSJ 等财经大刊的标题层、硅谷公司博客，到中国 AI 媒体（DeepSeek 生态）、日欧设计杂志与横跨九个领域的国际大奖（诺贝尔奖、图灵奖、红点、普利兹克、World Press Photo、Turner Prize、LVMH Prize、克拉克奖……官方 feed 与新闻流双通道，全年月月有公告节点），再到 Reddit 日榜与 X 上的行业人物——中英日多语言、网页/API/社交媒体多形态进同一条管线（下游 LLM 语言无关），统一产出中文刊物。除新闻流外还接入了**趋势与信号层**：GitHub/Hugging Face/OpenRouter 三类榜单（社区热度、代码热度、API 市场真实用量互相印证，涨速与在榜时长都是选题信号），以及 Polymarket/Kalshi 预测市场盘口（赔率=真金押注的群体预测，剧烈异动自动重新入池成题）。
 
 运行成本：**一台 $7/月 的 VPS + 一份闲置的 ChatGPT 订阅**（LLM 调用走 Codex CLI 消化订阅额度，零 API 账单）+ Cloudflare Pages 免费托管。
 

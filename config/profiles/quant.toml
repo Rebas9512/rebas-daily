@@ -55,6 +55,14 @@ keywords = [
   "implied", "skew",
 ]
 
+[[interest]]
+name = "学界与行业奖项"
+weight = 3                  # 2026-08-27 奖项信号层：afa-news 接入——Fischer Black
+                            # Prize(奇数年1月)等 AFA 系奖项 + Risk Awards/QOTY
+                            # (11月下旬，risknet 全站 feed 自然带到)；得主与获奖
+                            # 工作是人物/方法论选题的入口
+keywords = ["prize", "award", "medal", "laureate", "Fischer Black"]
+
 [low_priority]
 # 加密量化降权不屏蔽（用户 2026-07-04 确认）；个股荐股评论类噪音降权
 keywords = ["crypto", "bitcoin", "ethereum", "stock pick", "top stocks"]

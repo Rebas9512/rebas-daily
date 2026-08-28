@@ -693,12 +693,14 @@ def test_paced_lane_source_parsing():
 
     sources = load_sources(enabled_only=True)
     paced = [s for s in sources if s.pace_seconds > 0]
-    assert {s.type for s in paced} == {"reddit_rss", "nitter_rss"}  # 慢车道成员
+    # 慢车道成员只能是限速源类型；nitter 源 2026-08-27 起因 xcancel 收 X Corp
+    # 停止函全体禁用（子集语义：禁完某一类是合法状态，出现别的类型才是错）
+    assert paced and {s.type for s in paced} <= {"reddit_rss", "nitter_rss"}
     assert all(s.pace_seconds >= 60 for s in paced)        # 实测限速 ~1req/min，间隔须 ≥60s
     fast = {s.type for s in sources if not s.pace_seconds}
     assert not fast & {"reddit_rss", "nitter_rss"}         # 限速源绝不进并发快车道
     # xcancel RSS 按阅读器 UA 白名单放行（2026-08-26）：浏览器 UA 只拿占位 feed，
-    # user_agent 覆盖是该通道的生存条件，掉了= 9 源静默空转
+    # user_agent 覆盖是该通道的生存条件，掉了= 9 源静默空转（复活时仍须成立）
     for s in sources:
         if s.type == "nitter_rss":
             assert "rss.xcancel.com" in s.endpoint and s.user_agent

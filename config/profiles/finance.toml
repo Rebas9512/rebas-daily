@@ -24,6 +24,13 @@ keywords = [
   "acquisition", "merger", "antitrust", "valuation",
 ]
 
+[[interest]]
+name = "经济学与商业大奖"
+weight = 3                  # 2026-08-27 奖项信号层：gnews-clark-medal/loeb-awards
+                            # 接入——克拉克奖(4月)/Loeb 获奖名单(10月)/经济学诺奖
+                            # (10月，走媒体源)是硬新闻；得主生日/讲座类散提不在此列
+keywords = ["Nobel", "Clark Medal", "Loeb Awards", "laureate", "economist"]
+
 [low_priority]
 keywords = []
 
