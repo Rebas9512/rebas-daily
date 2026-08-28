@@ -397,6 +397,12 @@ enabled = true
 # NetNewsWire 不行——user_agent 按源覆盖（本刊就是同类自托管阅读器，量级 9 账号×8h）。
 # 正规化备选：邮件 rss@xcancel.com 申请把自有 UA 加白（占位 feed 里带申请 ID）。
 # 复活条件：nitter.net /karpathy/rss 恢复 200 且有条目，可切回。
+# 2026-08-27 xcancel 收紧：白名单从"已知阅读器 UA"改为**逐阅读器邮件申请制**——
+# FreshRSS/TT-RSS/Miniflux/NewsBlur/Feedbin/Akregator 全 UA 占位 feed（本机实测），
+# 期间还闪过一轮 410（志愿者实例行为反复）；备选镜像生态全灭（lightbrd/space/
+# kareem 403、tiekoetter 429、privacyredirect 502、poast DNS 死）。处置：UA 换成
+# 自有署名（与加白申请一致），保持 enabled——获批即自动复活，零人工；申请 ID 从
+# VPS 出口取（可能绑 IP）。若一周未获批再 disable 止噪。
 
 [[source]]
 id = "x-karpathy"
@@ -404,7 +410,7 @@ board = "tech"
 name = "X · Andrej Karpathy"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/karpathy/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -416,7 +422,7 @@ board = "tech"
 name = "X · Sam Altman"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/sama/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -428,7 +434,7 @@ board = "tech"
 name = "X · Yann LeCun"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/ylecun/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -440,7 +446,7 @@ board = "tech"
 name = "X · Demis Hassabis"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/demishassabis/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -452,7 +458,7 @@ board = "tech"
 name = "X · Andrew Ng"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/AndrewYNg/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -464,7 +470,7 @@ board = "tech"
 name = "X · Elon Musk"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/elonmusk/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8   # 高频账号：RSS 每次只给最新 ~20 条，取的是采样不是全量
 pace_seconds = 120
@@ -476,7 +482,7 @@ board = "tech"
 name = "X · Anthropic 官方"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/AnthropicAI/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -488,7 +494,7 @@ board = "quant"
 name = "X · Cliff Asness (AQR)"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/CliffordAsness/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -501,7 +507,7 @@ board = "quant"
 name = "X · Benn Eifert (QVR)"
 type = "nitter_rss"
 endpoint = "https://rss.xcancel.com/bennpeifert/rss"
-user_agent = "FreshRSS/1.24.0 (Linux; https://freshrss.org)"
+user_agent = "rebas-daily/1.0 (+https://rebasdaily.com; personal RSS reader)"
 content = "headline"
 fetch_interval_hours = 8
 pace_seconds = 120
@@ -964,8 +970,144 @@ content = "fulltext"        # 时尚文化，全文 ~10k 字符带图；~10 条�
 fetch_interval_hours = 12
 enabled = true
 
+# —— 奖项信号层（2026-08-27，vault 02 §17）——七领域权威大奖接入。
+# 调研结论：奖项机构官网 90% 无 RSS（不是被拦是真没有），三个例外直采；
+# 其余走 gnews 查询。踩坑：Taylor Wessing / Herbert Smith Freehills 都是律所名，
+# 裸查全是并购新闻——必须用完整奖名短语；gnews OR 链里掺未加引号的裸词会把
+# 整条查询打坏成 0 条；OR 合并有召回损失（建筑三奖合并 14 < WAF 单查 26），
+# 高密度奖项单查、低密度才合并。配套 art 画像新增摄影+大奖兴趣线。
+
+[[source]]
+id = "pritzker"
+board = "art"
+name = "Pritzker Architecture Prize"
+type = "rss"
+endpoint = "https://www.pritzkerprize.com/rss.xml"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # 建筑最高奖官方 feed（全场稀有）：年更 1 条得主页，
+                            # 授奖词全文 7k+ 字符带图，零噪音
+
+[[source]]
+id = "worldphoto"
+board = "art"
+name = "World Photography Organisation"
+type = "rss"
+endpoint = "https://www.worldphoto.org/rss.xml"
+content = "fulltext"
+fetch_interval_hours = 12
+enabled = true              # Sony World Photography Awards 主办方官方 feed，全文
+                            # ~9.8k 字符带图；淡季有 "Entries of the Week" 栏目贴
+                            # 靠粗筛压噪，奖季（1-4 月）shortlist/得主公告
+
+[[source]]
+id = "hasselblad"
+board = "art"
+name = "Hasselblad Foundation"
+type = "rss"
+endpoint = "https://www.hasselbladfoundation.org/en/feed/"
+content = "fulltext"
+fetch_interval_hours = 24
+enabled = true              # 哈苏奖（"摄影诺贝尔"）官方 feed：年更 2-3 条全是奖项
+                            # 本身，全文带图零噪音。注意根路径 /rss.xml 是无日期
+                            # 站点地图式 feed 不可用，必须用 /en/feed/
+
+[[source]]
+id = "gnews-photo-awards"
+board = "art"
+name = "国际摄影奖项 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22World+Press+Photo%22+OR+%22Sony+World+Photography+Awards%22+OR+%22Leica+Oskar+Barnack%22+OR+%22Taylor+Wessing+Photo+Portrait+Prize%22+OR+%22Prix+Pictet%22+OR+%22Hasselblad+Award%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # WPP(4月)/Sony WPA(1-4月)/LOBA(7+10月)/Taylor Wessing
+                            # (8+11月)/Prix Pictet(18月周期)/哈苏(2-3月)；实测 7d=7
+                            # 30d=23。Taylor Wessing 是律所名，必须用完整奖名短语
+
+[[source]]
+id = "gnews-art-awards"
+board = "art"
+name = "艺术大奖 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Turner+Prize%22+OR+%22Archibald+Prize%22+OR+%22John+Moores+Painting+Prize%22+OR+%22Praemium+Imperiale%22+OR+%22Kramer+Portrait+Award%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # Turner(12月)/Archibald(5月)/John Moores(双年9月)/
+                            # 世界文化赏(9月)/NPG 肖像画奖(6月，前 BP Portrait，现全名
+                            # Herbert Smith Freehills Kramer Portrait Award——HSF 是
+                            # 律所，裸查全是并购新闻，用 "Kramer Portrait Award" 尾段
+                            # 短语)；实测 7d=20 30d=51
+
+[[source]]
+id = "gnews-fashion-awards"
+board = "art"
+name = "时尚设计奖项 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22LVMH+Prize%22+OR+%22ANDAM+Fashion+Awards%22+OR+%22Woolmark+Prize%22+OR+%22Hy%C3%A8res+festival%22+OR+%22CFDA+Fashion+Awards%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # 新锐名单类节点媒体源覆盖不稳，是本查询的增量点：
+                            # LVMH 半决赛2月/决赛9月(2026-09-04 即将)、ANDAM 7月、
+                            # Woolmark 4-5月、Hyères 10月、CFDA 11月。坑：ANDAM 必须
+                            # 复数(宿务语常用词)、Hyères 必须带 festival(法国市镇体育
+                            # 噪音)；实测 90d=39 噪音≤3
+
+[[source]]
+id = "gnews-bfc-press"
+board = "art"
+name = "British Fashion Council (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:britishfashioncouncil.co.uk+OR+site:fashionawards.com+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # BFC 官网 press release 一手流（~3 条/月）：Fashion
+                            # Awards(11月底) + NEWGEN 等新锐名单；官网 /news/feed 500。
+                            # 混有 Career 页等静态页噪音（爬取日伪装 pubDate）靠粗筛
+
+[[source]]
+id = "gnews-waf"
+board = "art"
+name = "World Architecture Festival (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22World+Architecture+Festival%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # WAF：shortlist 7-8月、winners 11月中；实测 7d=11 30d=26
+                            # （建筑奖里密度最高）。附带覆盖 INSIDE 室内节（同场同稿，
+                            # WAF 报道标题即含 interiors），室内不单设
+
+[[source]]
+id = "gnews-stirling"
+board = "art"
+name = "RIBA Stirling Prize (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Stirling+Prize%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # 英国最高建筑奖：shortlist 9月初、winner 10月中；平时也有
+                            # RIBA 生态讨论量（7d=7）。riba.org 无 feed，ribaj.com 拦
+                            # urllib。Royal Gold Medal 秋季公告靠本查询+媒体源自然带到
+
+[[source]]
+id = "gnews-boy-interior"
+board = "art"
+name = "Interior Design Best of Year (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22Best+of+Year+Awards%22+interior+design+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # 美国 A&D 行业标杆奖（室内弱区补位）：纯年度脉冲——12月初
+                            # 颁奖 1y=48 条，平时 0 条零成本空转。官方 feed 存在但被站方
+                            # 清空(0 items)。FRAME/Andrew Martin/INSIDE 调研后放弃：
+                            # 密度不足或并入 WAF
+
 # 已测不可用（2026-07-03）：Brand New(500)、Frieze(403)、e-flux(404)、
 # The Batch(404)、VentureBeat AI(feed 停更于 2026-05)。alphaXiv API 三次探测均 404。
+# 奖项线已测不可用（2026-08-27）：NPG 两奖官方通道(npg.org.uk 整站 403 连 curl 也拦)、
+# EU Mies(miesarch.com 拒连/基金会 feed 停更 2024-11)、Aga Khan(下届 2028)、
+# lvmhprize.com/andam.fr/villanoailles.com/woolmarkprize.com(全无 feed 或空 feed)、
+# IPA photoawards.com/feed(技术可用但内容是 SEO 博客农场)、labiennale.org/en/rss.xml
+# (可抓但 headline 级+全部门混流，8月被电影节刷屏，备选未启用)。
 
 # ============================================================
 # 设计板块（2026-07-05 新建：产品设计[实体+数字/UX]/工业设计/平面设计。
@@ -1735,10 +1877,55 @@ id = "gnews-design-awards"
 board = "design"
 name = "国际设计奖项 (via Google News)"
 type = "gnews_rss"
-endpoint = "https://news.google.com/rss/search?q=%22Red+Dot+Award%22+OR+%22iF+Design+Award%22+OR+%22Good+Design+Award%22+OR+%22Dezeen+Awards%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+endpoint = "https://news.google.com/rss/search?q=%22Red+Dot+Award%22+OR+%22iF+Design+Award%22+OR+%22Good+Design+Award%22+OR+%22Dezeen+Awards%22+OR+%22International+Design+Excellence+Awards%22+when:7d&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
 fetch_interval_hours = 24
-enabled = true              # Red Dot/iF/Good Design(G-Mark)/Dezeen Awards 获奖事件流；获奖公告季节性，粗筛压 PR 噪音
+enabled = true              # Red Dot/iF/Good Design(G-Mark)/Dezeen Awards/IDEA 获奖事件流；
+                            # 获奖公告季节性，粗筛压 PR 噪音。2026-08-27 补 IDEA：必须用
+                            # 全名短语——"IDSA" 裸查被美国感染病学会淹没，带括号分组的
+                            # (IDSA+"design award") 写法召回反而减半(15 vs 28)；补后实测
+                            # 7d=28 ≥ 原 23 无召回损失
+
+# —— 奖项信号层·设计板块（2026-08-27，vault 02 §17）——
+
+[[source]]
+id = "reddot-press"
+board = "design"
+name = "Red Dot (官方新闻室)"
+type = "rss"
+endpoint = "https://www.mynewsdesk.com/rss/current_news/123868"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # red-dot.org 本站无 feed，官方发稿走 Mynewsdesk 新闻室：
+                            # ~1.4 条/月一手 press release，description 空=headline 级
+                            # 走 lazy fetch，条目带 enclosure 大图。与 gnews 第三方转载
+                            # 互补（三大奖脉冲：产品3月/品牌传达8月/概念9月）
+
+[[source]]
+id = "tdc"
+board = "design"
+name = "Type Directors Club"
+type = "rss"
+endpoint = "https://tdc.org/feed/"
+content = "abstract"
+fetch_interval_hours = 24
+enabled = true              # 全球字体设计最高奖（1946 起，隶属 The One Club）官方 feed：
+                            # ~1 条/月 abstract 带图，TDC 年度赏 2 月底公布。gnews 对
+                            # TDC 几乎零回声（30d=2），官方 feed 是唯一稳定通道
+
+[[source]]
+id = "gnews-graphic-awards"
+board = "design"
+name = "平面设计奖项 (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=%22D%26AD%22+OR+%22ADC+Annual+Awards%22+OR+%22Type+Directors+Club%22+when:7d&hl=en-US&gl=US&ceid=US:en"
+content = "headline"
+fetch_interval_hours = 24
+enabled = true              # D&AD(Pencil 5月+Black Pencil 9月)/ADC 年奖(5月)/TDC 兜底；
+                            # 实测 7d=3 30d=16。D&AD 的 & 必须编码 %26；裸缩写有广告业
+                            # 闲聊噪音靠粗筛。放弃项：Cannes Lions(常年噪音>信号，6月
+                            # 脉冲媒体源必报)、Tokyo TDC(日文纯标题)、One Club 裸查(高
+                            # 尔夫噪音)
 
 # ---- 艺术板块：欧洲建筑/设计权威 ----
 
