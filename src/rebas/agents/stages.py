@@ -1136,6 +1136,8 @@ ARCHIVE_INDEX_CAP = 200        # 索引条数上限（标题级）
 ARCHIVE_READ_CAP = 5           # 单次可索取全文的篇数上限
 ARCHIVE_BODY_CHARS = 3000
 FACTS_MARK = "【需调查补充】"   # 薄材料新闻选题在背调清单里的标注
+STORY_MARK = "【经典栏目·需故事补充】"   # 经典鉴赏选题的标注：材料（百科正文）厚但故事薄
+STORY_SOURCE_IDS = ("classic-art", "classic-design")  # 鉴赏两栏目；classic-paper 走论文精读线不在此列
 
 
 def _facts_eligible(conf: AppConfig, rows) -> bool:
@@ -1214,6 +1216,9 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
       【需调查补充】，agent 联网检索补充事实细节（facts，带来源），经背景审核后
       进撰写。新闻按事件口径；论文仅在原文精读实在拿不到时放行（见 _facts_eligible），
       检索期刊新闻稿/出版方页面/媒体报道；research_facts_max=0 整体关闭；
+    - 经典栏目故事补充（2026-08-30）：鉴赏选题（STORY_SOURCE_IDS）材料是百科正文，
+      厚而无故事——恒标注【经典栏目·需故事补充】，联网检索趣闻轶事/流转命运/
+      人文历史当故事素材（栏目取向：叙事为主体，条目式事实只做点缀）；
     - 幂等：background 非 NULL 或已有报道的选题跳过；空产物也落库标记已处理。
     """
     if not profile.reader_assumed and not profile.reader_explain:
@@ -1226,15 +1231,21 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
         return {"skipped": "无待调查选题"}
 
     investigate: set[int] = set()
+    story: set[int] = set()
     blocks = []
     for t in topics:
         rows = _topic_items(conn, t)
-        if conf.research_facts_max > 0 and _facts_eligible(conf, rows):
-            investigate.add(t["id"])
+        if conf.research_facts_max > 0:
+            if any(r["source_id"] in STORY_SOURCE_IDS for r in rows):
+                story.add(t["id"])       # 经典鉴赏：不看材料厚度，恒补故事素材
+                investigate.add(t["id"])
+            elif _facts_eligible(conf, rows):
+                investigate.add(t["id"])
         excerpts = "\n".join(
             f"  - {r['title']}：{(r['extracted_text'] or r['summary'] or '（仅标题）')[:RESEARCH_EXCERPT_CHARS]}"
             for r in rows[:RESEARCH_EXCERPT_ITEMS])
-        mark = FACTS_MARK if t["id"] in investigate else ""
+        mark = (STORY_MARK if t["id"] in story
+                else FACTS_MARK if t["id"] in investigate else "")
         blocks.append(f"[T{t['id']}] {t['title']}{mark}\n"
                       f"入选理由: {t['reason'] or '（无）'}\n材料节选:\n{excerpts}")
     topics_block = "\n\n".join(blocks)
@@ -1282,8 +1293,8 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
                      (json.dumps(bg, ensure_ascii=False), t["id"]))
     conn.commit()
     return {"researched": len(topics), "with_background": with_bg,
-            "investigated": len(investigate), "with_facts": with_facts,
-            "archive_read": read}
+            "investigated": len(investigate), "story": len(story),
+            "with_facts": with_facts, "archive_read": read}
 
 
 # ---------- Stage 5 撰写 ----------

@@ -245,7 +245,7 @@ def test_stage_research(tmp_path):
     stats = stage_research(conn, conf, backend, "quant", profile, "量化", "2026-01-01")
     # 条目是 2 字摘要的 article → 两题都够薄材料新闻资格（investigated=2），模型没给 facts
     assert stats == {"researched": 2, "with_background": 1, "archive_read": 0,
-                     "investigated": 2, "with_facts": 0}
+                     "investigated": 2, "story": 0, "with_facts": 0}
     assert "夏普论文" in backend.prompts[0]           # 材料节选入提示词
     assert "金融概念要铺垫" in backend.prompts[0]     # 读者画像入提示词
     assert "30 天内无往期报道" in backend.prompts[0]  # 空书架如实呈现
@@ -309,7 +309,7 @@ def test_stage_research_archive_followup(tmp_path):
     stats = stage_research(conn, load_config(), backend, "quant", profile,
                            "量化", "2026-07-05")
     assert stats == {"researched": 1, "with_background": 1, "archive_read": 1,
-                     "investigated": 1, "with_facts": 0}
+                     "investigated": 1, "story": 0, "with_facts": 0}
     assert f"[A{past}]" in backend.prompts[0]      # 第一轮见标题索引
     assert "上期正文细节" in backend.prompts[1]    # 第二轮见全文
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
@@ -460,6 +460,61 @@ def test_stage_research_facts(tmp_path):
     assert stats0["investigated"] == 0
     assert not any(FACTS_MARK in ln for ln in backend0.prompts[0].splitlines()
                    if ln.startswith("[T"))    # 关闭后无题被标注
+
+
+def test_stage_research_classic_story(tmp_path):
+    """经典栏目故事补充：鉴赏选题材料再厚也标【经典栏目·需故事补充】且 facts 保留；
+    同板块普通厚材料题不受影响。"""
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import FACTS_MARK, STORY_MARK, stage_research
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+        " extracted_text, fetched_at) VALUES"
+        " ('classic-art','art','w1','w1','宫娥（百科正文）',?,'x')", ("厚" * 800,))
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+        " extracted_text, fetched_at) VALUES ('s','art','w2','w2','普通厚新闻',?,'x')",
+        ("厚" * 800,))
+    classic_iid, plain_iid = [r["id"] for r in conn.execute(
+        "SELECT id FROM raw_items ORDER BY id")]
+
+    def add_topic(key, iid):
+        conn.execute(
+            "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+            " decision, created_at, reason) VALUES"
+            " ('2026-08-30','art',?,?,?,'feature','x','r')",
+            (key, key, json.dumps([iid])))
+        return conn.execute("SELECT id FROM topics WHERE thread_key=?",
+                            (key,)).fetchone()["id"]
+
+    t_classic = add_topic("classic-las-meninas", classic_iid)
+    t_plain = add_topic("plain-news", plain_iid)
+    conn.commit()
+
+    profile = Profile(board="art", name="艺术", interests=(),
+                      reader_assumed="", reader_explain="背景故事切入")
+    backend = _FakeBackend(json.dumps({"topics": [
+        {"id": t_classic, "context": "", "concepts": [], "facts": [
+            {"fact": "传说画中公主的裙摆改过三次", "source": "普拉多官网"}]},
+    ]}, ensure_ascii=False))
+    stats = stage_research(conn, load_config(), backend, "art", profile,
+                           "艺术", "2026-08-30")
+    assert stats["story"] == 1 and stats["investigated"] == 1
+    assert stats["with_facts"] == 1
+    assert f"classic-las-meninas{STORY_MARK}" in backend.prompts[0]  # 鉴赏题带故事标注
+    plain_header = next(ln for ln in backend.prompts[0].splitlines()
+                        if ln.startswith(f"[T{t_plain}]"))
+    assert STORY_MARK not in plain_header and FACTS_MARK not in plain_header
+
+    bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                 (t_classic,)).fetchone()[0])
+    assert bg["facts"] == [{"fact": "传说画中公主的裙摆改过三次",
+                            "source": "普拉多官网"}]   # 材料厚也保留故事素材
 
 
 def test_checker_background_review_facts(tmp_path):
