@@ -68,6 +68,15 @@ def background_block(background_json: str | None) -> str:
                      "可作事实使用；首次引用按来源归因，如「据 Reuters 报道」）：")
         for f in bg["facts"]:
             lines.append(f"- {f.get('fact')}（来源：{f.get('source') or '公开报道'}）")
+    if bg.get("stories"):
+        # 故事素材（2026-08-30 story lane）：给叙事用的料，不是必须交代的事实清单——
+        # 编排权在撰稿人手里，所以措辞是"可选用"而不是"请写入"
+        lines.append("故事素材（编辑部围绕本题联网搜集、经审核的轶事与背景故事）："
+                     "**选用与编排由你定，不必全用**——挑真正推得动这篇叙事的；"
+                     "标注「据传/传说」口径的按原口径转述，不得写成坐实；"
+                     "事实类素材首次引用按来源归因。")
+        for s in bg["stories"]:
+            lines.append(f"- {s.get('story')}（来源：{s.get('source') or '公开报道'}）")
     return "\n".join(lines) or "（无背景材料）"
 
 

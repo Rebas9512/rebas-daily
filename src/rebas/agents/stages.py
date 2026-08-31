@@ -1046,10 +1046,14 @@ def stage_checker(conn, conf: AppConfig, backend: LLMBackend, board: str,
 
 
 def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) -> dict:
-    """背景审核：背调产物（概念解释 + 新闻调查补充 facts）批量审校（全板块一次调用）。
+    """背景审核：背调产物（概念解释 + 调查补充 facts + 故事素材 stories）批量审校
+    （全板块一次调用）。
 
-    verdict 三档：ok 保留 / fix 换成修正文本 / drop 删除。概念条目宁删勿留——
-    讲错比不讲更糟；facts 条目按新闻口径放宽（带来源的单方说法可保留，撰写会归因）。
+    verdict 三档：ok 保留 / fix 换成修正文本 / drop 删除。三类条目门槛各不相同：
+    概念条目宁删勿留（讲错比不讲更糟）；facts 按新闻口径放宽（带来源的单方说法
+    可保留，撰写会归因）；stories 是 fact check + 策展双职责，策展大原则=精彩度：
+    离题但精彩的留（取舍归撰稿人），又不相关又平淡的才删，**宁留勿删**——
+    故事性是这条流水线的产出目标。
     审校只裁决不新增（新增内容又成了未核查的知识）；漏裁决的条目保守保留。
     幂等：reviewed 标记；follow_up 出自本刊往期原文，不在审核范围。
     """
@@ -1058,7 +1062,8 @@ def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) 
             "SELECT id, title, background FROM topics WHERE issue_date=? AND board=?"
             " AND background IS NOT NULL", (issue_date, board)).fetchall():
         bg = json.loads(r["background"])
-        if (bg.get("concepts") or bg.get("facts")) and not bg.get("reviewed"):
+        if ((bg.get("concepts") or bg.get("facts") or bg.get("stories"))
+                and not bg.get("reviewed")):
             pending.append((r["id"], r["title"], bg))
     if not pending:
         return {}
@@ -1067,6 +1072,8 @@ def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) 
         lines = [f"- {c['term']}：{c['note']}" for c in bg.get("concepts") or []]
         lines += [f"- [F{i}] {f['fact']}（来源：{f.get('source') or '未注明'}）"
                   for i, f in enumerate(bg.get("facts") or [], 1)]
+        lines += [f"- [S{i}] {s['story']}（来源：{s.get('source') or '未注明'}）"
+                  for i, s in enumerate(bg.get("stories") or [], 1)]
         return "\n".join(lines)
 
     items_block = "\n\n".join(
@@ -1076,6 +1083,7 @@ def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) 
         role="checker")
     verdicts = {}
     fact_verdicts = {}
+    story_verdicts = {}
     for entry in review.get("topics", []):
         if not isinstance(entry, dict):
             continue
@@ -1084,18 +1092,19 @@ def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) 
                 verdicts[(entry.get("id"), str(c["term"]).strip())] = (
                     str(c.get("verdict") or "").strip(),
                     str(c.get("note") or "").strip())
-        for f in entry.get("facts") or []:
-            if not isinstance(f, dict):
-                continue
-            try:
-                idx = int(f.get("i"))
-            except (TypeError, ValueError):
-                continue
-            fact_verdicts[(entry.get("id"), idx)] = (
-                str(f.get("verdict") or "").strip(),
-                str(f.get("note") or "").strip())
+        for key, sink in (("facts", fact_verdicts), ("stories", story_verdicts)):
+            for e in entry.get(key) or []:   # 序号制条目（[F#]/[S#]）同一套解析
+                if not isinstance(e, dict):
+                    continue
+                try:
+                    idx = int(e.get("i"))
+                except (TypeError, ValueError):
+                    continue
+                sink[(entry.get("id"), idx)] = (
+                    str(e.get("verdict") or "").strip(),
+                    str(e.get("note") or "").strip())
 
-    fixed = dropped = f_fixed = f_dropped = 0
+    fixed = dropped = f_fixed = f_dropped = s_fixed = s_dropped = 0
     for tid, _title, bg in pending:
         kept = []
         for c in bg.get("concepts") or []:
@@ -1119,12 +1128,25 @@ def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) 
                 f_fixed += 1
             kept_f.append(f)
         bg["facts"] = kept_f
+        if "stories" in bg:   # 无 stories 键的题（story lane 未覆盖）不凭空造键
+            kept_s = []
+            for i, s in enumerate(bg.get("stories") or [], 1):
+                verdict, note = story_verdicts.get((tid, i), ("", ""))
+                if verdict == "drop":
+                    s_dropped += 1
+                    continue
+                if verdict == "fix" and note:
+                    s = {"story": note, "source": s.get("source") or ""}
+                    s_fixed += 1
+                kept_s.append(s)
+            bg["stories"] = kept_s
         bg["reviewed"] = True
         conn.execute("UPDATE topics SET background=? WHERE id=?",
                      (json.dumps(bg, ensure_ascii=False), tid))
     conn.commit()
     return {"bg_reviewed": len(pending), "bg_fixed": fixed, "bg_dropped": dropped,
-            "bg_facts_fixed": f_fixed, "bg_facts_dropped": f_dropped}
+            "bg_facts_fixed": f_fixed, "bg_facts_dropped": f_dropped,
+            "bg_stories_fixed": s_fixed, "bg_stories_dropped": s_dropped}
 
 
 # ---------- Stage 3.5 背景调查 ----------
@@ -1136,8 +1158,10 @@ ARCHIVE_INDEX_CAP = 200        # 索引条数上限（标题级）
 ARCHIVE_READ_CAP = 5           # 单次可索取全文的篇数上限
 ARCHIVE_BODY_CHARS = 3000
 FACTS_MARK = "【需调查补充】"   # 薄材料新闻选题在背调清单里的标注
-STORY_MARK = "【经典栏目·需故事补充】"   # 经典鉴赏选题的标注：材料（百科正文）厚但故事薄
 STORY_SOURCE_IDS = ("classic-art", "classic-design")  # 鉴赏两栏目；classic-paper 走论文精读线不在此列
+# story lane 的选题类型标注（2026-08-30）：两类选题检索取向差别大，在清单里点名
+STORY_CLASSIC_MARK = "【经典鉴赏】"
+STORY_NEWS_MARK = "【新闻专题】"
 
 
 def _facts_eligible(conf: AppConfig, rows) -> bool:
@@ -1156,6 +1180,33 @@ def _facts_eligible(conf: AppConfig, rows) -> bool:
             return False
         return total < PAPER_FACTS_THIN_CHARS
     return total < THIN_MATERIAL_CHARS
+
+
+def _story_eligible(conf: AppConfig, topic_row, rows) -> bool:
+    """故事素材（story lane）的资格（2026-08-30）。
+
+    - 经典鉴赏选题（STORY_SOURCE_IDS）恒查：材料是百科正文，厚而无故事，
+      栏目本身以叙事为主体，轶事就是主料；
+    - 常规新闻专题（decision=feature）也查：故事只当佐料，但一两条往事/先例
+      够撑起开篇或收尾（提示词侧另有更收敛的口径）；
+    - 速览不查（三百字篇幅无处安放）；论文选题整体不查（kind=paper，含
+      classic-paper 精读线）——论文报道要的是方法与结果，不是轶事。
+    """
+    if conf.research_stories_max <= 0:
+        return False
+    if any(r["kind"] == "paper" for r in rows):
+        return False
+    if any(r["source_id"] in STORY_SOURCE_IDS for r in rows):
+        return True
+    return topic_row["decision"] == "feature"
+
+
+def _research_excerpts(rows) -> str:
+    """背调清单里的材料节选块（两条 lane 共用同一份节选）。"""
+    return "\n".join(
+        f"  - {r['title']}："
+        f"{(r['extracted_text'] or r['summary'] or '（仅标题）')[:RESEARCH_EXCERPT_CHARS]}"
+        for r in rows[:RESEARCH_EXCERPT_ITEMS])
 
 
 def _archive_index(conn, board: str, issue_date: str):
@@ -1203,22 +1254,46 @@ def _parse_research(result: dict, facts_max: int = 0) -> dict:
     return by_id
 
 
+def _parse_stories(result: dict, stories_max: int) -> dict:
+    """researcher_story 产物 → {topic_id: [{story, source}]}，字段级容错。"""
+    by_id = {}
+    for entry in result.get("topics", []):
+        if not isinstance(entry, dict):
+            continue
+        stories = [
+            {"story": str(s["story"]).strip(),
+             "source": str(s.get("source") or "").strip()}
+            for s in entry.get("stories") or []
+            if isinstance(s, dict) and s.get("story")
+        ]
+        by_id[entry.get("id")] = stories[:stories_max]
+    return by_id
+
+
 def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
                    profile: Profile, board_name: str, issue_date: str) -> dict:
-    """为选题准备背景材料：教科书级概念解释 + 往期报道衔接（follow_up）。
+    """为选题准备背景材料：概念解释 + 往期衔接 + 事实/故事两路联网补充。
     产物随后与供稿论断一并进核查（stage_checker 的背景审核），再交撰写。
+
+    双 lane（2026-08-30 拆分）：两次批量调用，职责各管一摊——
+    - **facts lane**（researcher.md）：针对选题本身，教科书级概念解释 + 往期衔接
+      （follow_up）+ 薄材料选题的事实调查补充；
+    - **story lane**（researcher_story.md）：围绕选题周边搜轶事与故事素材，
+      给撰稿人当叙事料（拆开是因为两件事的检索取向与取舍标准南辕北辙——
+      一个求准求全，一个求奇求趣，混在一个 agent 里两头都做不好）。
 
     - 板块级开关：profile 无 [reader] 段 = 该板块读者不需要（商业/艺术），整体跳过；
     - 全板块一次批量调用（screen 同款），agent 对不需要背景的选题自甄别返回空列表；
-    - 往期查阅两轮协议：第一轮给 30 天标题索引，agent 需要读全文时返回
-      need_articles，第二轮附全文再产出最终背景（连续报道的 follow-up 不凭标题猜）；
+    - 往期查阅两轮协议（facts lane 内）：第一轮给 30 天标题索引，agent 需要读全文时
+      返回 need_articles，第二轮附全文再产出最终背景（连续报道不凭标题猜）；
     - 调查补充（2026-07-06 新闻/repo，2026-07-07 扩展论文）：材料薄的选题标注
       【需调查补充】，agent 联网检索补充事实细节（facts，带来源），经背景审核后
       进撰写。新闻按事件口径；论文仅在原文精读实在拿不到时放行（见 _facts_eligible），
       检索期刊新闻稿/出版方页面/媒体报道；research_facts_max=0 整体关闭；
-    - 经典栏目故事补充（2026-08-30）：鉴赏选题（STORY_SOURCE_IDS）材料是百科正文，
-      厚而无故事——恒标注【经典栏目·需故事补充】，联网检索趣闻轶事/流转命运/
-      人文历史当故事素材（栏目取向：叙事为主体，条目式事实只做点缀）；
+    - 故事素材（2026-08-30）：经典鉴赏题恒查、新闻专题也查（见 _story_eligible），
+      research_stories_max=0 时整条 lane 不跑；
+    - 落库在两条 lane 都返回之后统一做——任一调用抛错即该板块 background 全未写，
+      板块级重跑两条 lane 都重来，幂等语义与单 lane 时代一致；
     - 幂等：background 非 NULL 或已有报道的选题跳过；空产物也落库标记已处理。
     """
     if not profile.reader_assumed and not profile.reader_explain:
@@ -1230,24 +1305,20 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
     if not topics:
         return {"skipped": "无待调查选题"}
 
+    rows_by_id = {t["id"]: _topic_items(conn, t) for t in topics}
     investigate: set[int] = set()
     story: set[int] = set()
     blocks = []
     for t in topics:
-        rows = _topic_items(conn, t)
-        if conf.research_facts_max > 0:
-            if any(r["source_id"] in STORY_SOURCE_IDS for r in rows):
-                story.add(t["id"])       # 经典鉴赏：不看材料厚度，恒补故事素材
-                investigate.add(t["id"])
-            elif _facts_eligible(conf, rows):
-                investigate.add(t["id"])
-        excerpts = "\n".join(
-            f"  - {r['title']}：{(r['extracted_text'] or r['summary'] or '（仅标题）')[:RESEARCH_EXCERPT_CHARS]}"
-            for r in rows[:RESEARCH_EXCERPT_ITEMS])
-        mark = (STORY_MARK if t["id"] in story
-                else FACTS_MARK if t["id"] in investigate else "")
+        rows = rows_by_id[t["id"]]
+        if conf.research_facts_max > 0 and _facts_eligible(conf, rows):
+            investigate.add(t["id"])
+        if _story_eligible(conf, t, rows):
+            story.add(t["id"])
+        mark = FACTS_MARK if t["id"] in investigate else ""
         blocks.append(f"[T{t['id']}] {t['title']}{mark}\n"
-                      f"入选理由: {t['reason'] or '（无）'}\n材料节选:\n{excerpts}")
+                      f"入选理由: {t['reason'] or '（无）'}\n材料节选:\n"
+                      f"{_research_excerpts(rows)}")
     topics_block = "\n\n".join(blocks)
     archive = _archive_index(conn, board, issue_date)
 
@@ -1278,8 +1349,30 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
             facts_max=conf.research_facts_max, topics_block=topics_block)
         result = complete_json(backend, prompt2, role="researcher")
 
+    # story lane：只把有资格的选题送进清单（无资格的题连提都不提，省 token 也省误伤）
+    stories_by_id: dict = {}
+    if story:
+        story_blocks = []
+        for t in topics:
+            if t["id"] not in story:
+                continue
+            rows = rows_by_id[t["id"]]
+            mark = (STORY_CLASSIC_MARK
+                    if any(r["source_id"] in STORY_SOURCE_IDS for r in rows)
+                    else STORY_NEWS_MARK)
+            story_blocks.append(
+                f"[T{t['id']}] {mark}{t['title']}\n"
+                f"入选理由: {t['reason'] or '（无）'}\n材料节选:\n"
+                f"{_research_excerpts(rows)}")
+        story_result = complete_json(backend, render_prompt(
+            "researcher_story", board_name=board_name,
+            reader_block=reader_block(profile),
+            stories_max=conf.research_stories_max,
+            topics_block="\n\n".join(story_blocks)), role="researcher")
+        stories_by_id = _parse_stories(story_result, conf.research_stories_max)
+
     by_id = _parse_research(result, conf.research_facts_max)
-    with_bg = with_facts = 0
+    with_bg = with_facts = with_stories = 0
     for t in topics:  # 未覆盖的选题也落空产物，幂等守卫才认账
         bg = by_id.get(t["id"], {"context": "", "concepts": [], "facts": [],
                                  "follow_up": ""})
@@ -1287,14 +1380,20 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
             bg["facts"] = []       # 未标注的选题不吃 facts——铁律在代码层兜底
         if bg["facts"]:
             with_facts += 1
-        if bg["context"] or bg["concepts"] or bg["facts"] or bg["follow_up"]:
+        if t["id"] in story:       # 有资格的题一律落 stories 键（空列表也落）
+            bg["stories"] = stories_by_id.get(t["id"], [])
+            if bg["stories"]:
+                with_stories += 1
+        if (bg["context"] or bg["concepts"] or bg["facts"] or bg["follow_up"]
+                or bg.get("stories")):
             with_bg += 1
         conn.execute("UPDATE topics SET background=? WHERE id=?",
                      (json.dumps(bg, ensure_ascii=False), t["id"]))
     conn.commit()
     return {"researched": len(topics), "with_background": with_bg,
-            "investigated": len(investigate), "story": len(story),
-            "with_facts": with_facts, "archive_read": read}
+            "investigated": len(investigate), "with_facts": with_facts,
+            "story_topics": len(story), "with_stories": with_stories,
+            "archive_read": read}
 
 
 # ---------- Stage 5 撰写 ----------
@@ -1397,11 +1496,14 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
         material_total = sum(
             len(fulltext.get(r["id"]) or r["extracted_text"] or r["summary"] or "")
             for r in rows)
-        # 新闻调查补充的 facts 也是可用事实材料——计入总量，防薄材料封顶误伤
+        # 调查补充的 facts 与故事素材 stories 也是可用材料——计入总量，防薄材料封顶误伤
+        # （2026-08-30 拆 lane 后 stories 单独成键，一并计入，口径与拆分前一致）
         if t["background"]:
-            material_total += sum(
-                len(f.get("fact") or "")
-                for f in json.loads(t["background"]).get("facts") or [])
+            bg_json = json.loads(t["background"])
+            material_total += sum(len(f.get("fact") or "")
+                                  for f in bg_json.get("facts") or [])
+            material_total += sum(len(s.get("story") or "")
+                                  for s in bg_json.get("stories") or [])
         # 图片审选（2026-07-07）：候选图下载附给 writer 实际查看——留哪些（可全弃）、
         # 正文何处插图由它定；下载全失败则本篇不审选（image_plan=NULL 回退旧行为）
         numbered = _prepare_topic_images(conf, t["id"], rows) if review_images else []

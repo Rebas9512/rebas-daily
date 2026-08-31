@@ -46,9 +46,16 @@ class TestPromptTemplates:
                            facts_max=6, topics_block="[T1] ...")
         assert "follow_up" in r2 and "往期报道全文" in r2
         assert "需调查补充" in r2             # 第二轮同样带调查补充协议
+        story = render_prompt("researcher_story", board_name=p.name,
+                              reader_block=reader_block(p), stories_max=6,
+                              topics_block="[T1] 【经典鉴赏】...")
+        assert "轶事猎手" in story and "最多 6 条" in story
+        assert "【经典鉴赏】" in story and "【新闻专题】" in story  # 两类检索取向分开写
+        assert '"stories"' in story and "只写检索结果里有的" in story
         bg_check = render_prompt("checker_background", items_block="[T1] ...")
         assert "ok|fix|drop" in bg_check and "宁删勿留" in bg_check
         assert "[F#]" in bg_check and "门槛放宽" in bg_check  # facts 按新闻口径审
+        assert "[S#]" in bg_check and "宁留勿删" in bg_check  # stories 策展宽松
         classic = render_prompt("editor_classic", day_rule="今天是油画日",
                                 done_block="- 星月夜", retry_block="")
         assert "wiki_title" in classic and "经典" in classic
@@ -125,6 +132,13 @@ class TestPromptTemplates:
         assert "调查补充" in block2 and "据 Reuters 报道" in block2
         assert "- 公司 A 于周一宣布收购（来源：Reuters）" in block2
         assert "- 交易额 3 亿美元（来源：公开报道）" in block2
+        # 故事素材（2026-08-30）：单独成节，措辞给撰稿人留取舍权、传说不得坐实
+        raw3 = ('{"context":"","concepts":[],"stories":['
+                '{"story":"传说画作在大火里被抢出……","source":"普拉多官网"}]}')
+        block3 = background_block(raw3)
+        assert "故事素材" in block3 and "不必全用" in block3
+        assert "不得写成坐实" in block3
+        assert "- 传说画作在大火里被抢出……（来源：普拉多官网）" in block3
 
 
 def test_thread_key_normalize():
@@ -236,16 +250,20 @@ def test_stage_research(tmp_path):
 
     profile = Profile(board="quant", name="量化", interests=(),
                       reader_assumed="懂 ML", reader_explain="金融概念要铺垫")
-    backend = _FakeBackend(json.dumps({"topics": [
-        {"id": t1, "context": "资产定价",
-         "concepts": [{"term": "夏普比率", "note": "单位风险的超额收益"}]},
-        "非法条目",                       # 字段级容错：非 dict 跳过
-        {"id": 999999, "context": "", "concepts": []},   # 幽灵 id 忽略
-    ]}, ensure_ascii=False))
+    backend = _FakeBackend(
+        json.dumps({"topics": [
+            {"id": t1, "context": "资产定价",
+             "concepts": [{"term": "夏普比率", "note": "单位风险的超额收益"}]},
+            "非法条目",                       # 字段级容错：非 dict 跳过
+            {"id": 999999, "context": "", "concepts": []},   # 幽灵 id 忽略
+        ]}, ensure_ascii=False),
+        json.dumps({"topics": [{"id": t1, "stories": []}]}))   # story lane：无料可讲
     stats = stage_research(conn, conf, backend, "quant", profile, "量化", "2026-01-01")
-    # 条目是 2 字摘要的 article → 两题都够薄材料新闻资格（investigated=2），模型没给 facts
+    # 条目是 2 字摘要的 article → 两题都够薄材料新闻资格（investigated=2），模型没给 facts；
+    # t1 是专题 → 进 story lane（t2 速览不进）
     assert stats == {"researched": 2, "with_background": 1, "archive_read": 0,
-                     "investigated": 2, "story": 0, "with_facts": 0}
+                     "investigated": 2, "story_topics": 1, "with_stories": 0,
+                     "with_facts": 0}
     assert "夏普论文" in backend.prompts[0]           # 材料节选入提示词
     assert "金融概念要铺垫" in backend.prompts[0]     # 读者画像入提示词
     assert "30 天内无往期报道" in backend.prompts[0]  # 空书架如实呈现
@@ -255,7 +273,7 @@ def test_stage_research(tmp_path):
         "SELECT background FROM topics WHERE id=?", (t1,)).fetchone()[0])
     assert bg1 == {"context": "资产定价",
                    "concepts": [{"term": "夏普比率", "note": "单位风险的超额收益"}],
-                   "facts": [], "follow_up": ""}
+                   "facts": [], "follow_up": "", "stories": []}
     bg2 = json.loads(conn.execute(
         "SELECT background FROM topics WHERE id=?", (t2,)).fetchone()[0])
     assert bg2 == {"context": "", "concepts": [], "facts": [],
@@ -309,7 +327,8 @@ def test_stage_research_archive_followup(tmp_path):
     stats = stage_research(conn, load_config(), backend, "quant", profile,
                            "量化", "2026-07-05")
     assert stats == {"researched": 1, "with_background": 1, "archive_read": 1,
-                     "investigated": 1, "story": 0, "with_facts": 0}
+                     "investigated": 1, "story_topics": 0, "with_stories": 0,
+                     "with_facts": 0}
     assert f"[A{past}]" in backend.prompts[0]      # 第一轮见标题索引
     assert "上期正文细节" in backend.prompts[1]    # 第二轮见全文
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
@@ -347,7 +366,8 @@ def test_checker_background_review(tmp_path):
     ]}]}, ensure_ascii=False))
     stats = stage_checker(conn, load_config(), backend, "data", "2026-01-01")
     assert stats == {"checked": 0, "bg_reviewed": 1, "bg_fixed": 1, "bg_dropped": 1,
-                     "bg_facts_fixed": 0, "bg_facts_dropped": 0}
+                     "bg_facts_fixed": 0, "bg_facts_dropped": 0,
+                     "bg_stories_fixed": 0, "bg_stories_dropped": 0}
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
                                  (tid,)).fetchone()[0])
     assert {c["term"]: c["note"] for c in bg["concepts"]} == {
@@ -462,13 +482,16 @@ def test_stage_research_facts(tmp_path):
                    if ln.startswith("[T"))    # 关闭后无题被标注
 
 
-def test_stage_research_classic_story(tmp_path):
-    """经典栏目故事补充：鉴赏选题材料再厚也标【经典栏目·需故事补充】且 facts 保留；
-    同板块普通厚材料题不受影响。"""
+def test_stage_research_story_lane(tmp_path):
+    """故事素材双 lane（2026-08-30）：facts lane 之后另起一次 story lane 调用——
+    经典鉴赏题恒查、新闻专题也查，速览与论文题不进清单；stories 落库并按上限截断。"""
+    import dataclasses
     import json
 
     from rebas import db as database
-    from rebas.agents.stages import FACTS_MARK, STORY_MARK, stage_research
+    from rebas.agents.stages import (
+        FACTS_MARK, STORY_CLASSIC_MARK, STORY_NEWS_MARK, stage_research,
+    )
     from rebas.config import load_config
 
     conn = database.init_db(tmp_path / "t.sqlite")
@@ -476,45 +499,86 @@ def test_stage_research_classic_story(tmp_path):
         "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
         " extracted_text, fetched_at) VALUES"
         " ('classic-art','art','w1','w1','宫娥（百科正文）',?,'x')", ("厚" * 800,))
+    for key, url in (("普通厚新闻", "w2"), ("速览新闻", "w3")):
+        conn.execute(
+            "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
+            " extracted_text, fetched_at) VALUES ('s','art',?,?,?,?,'x')",
+            (url, url, key, "厚" * 800))
     conn.execute(
-        "INSERT INTO raw_items (source_id, board, url, url_canonical, title,"
-        " extracted_text, fetched_at) VALUES ('s','art','w2','w2','普通厚新闻',?,'x')",
-        ("厚" * 800,))
-    classic_iid, plain_iid = [r["id"] for r in conn.execute(
-        "SELECT id FROM raw_items ORDER BY id")]
+        "INSERT INTO raw_items (source_id, board, kind, url, url_canonical, title,"
+        " extracted_text, fetched_at) VALUES"
+        " ('arxiv','art','paper','w4','w4','一篇论文',?,'x')", ("厚" * 800,))
+    classic_iid, plain_iid, brief_iid, paper_iid = [
+        r["id"] for r in conn.execute("SELECT id FROM raw_items ORDER BY id")]
 
-    def add_topic(key, iid):
+    def add_topic(key, iid, decision="feature"):
         conn.execute(
             "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
             " decision, created_at, reason) VALUES"
-            " ('2026-08-30','art',?,?,?,'feature','x','r')",
-            (key, key, json.dumps([iid])))
+            " ('2026-08-30','art',?,?,?,?,'x','r')",
+            (key, key, json.dumps([iid]), decision))
         return conn.execute("SELECT id FROM topics WHERE thread_key=?",
                             (key,)).fetchone()["id"]
 
     t_classic = add_topic("classic-las-meninas", classic_iid)
     t_plain = add_topic("plain-news", plain_iid)
+    t_brief = add_topic("brief-news", brief_iid, "brief")
+    t_paper = add_topic("paper-topic", paper_iid)
     conn.commit()
 
     profile = Profile(board="art", name="艺术", interests=(),
                       reader_assumed="", reader_explain="背景故事切入")
-    backend = _FakeBackend(json.dumps({"topics": [
-        {"id": t_classic, "context": "", "concepts": [], "facts": [
-            {"fact": "传说画中公主的裙摆改过三次", "source": "普拉多官网"}]},
-    ]}, ensure_ascii=False))
-    stats = stage_research(conn, load_config(), backend, "art", profile,
-                           "艺术", "2026-08-30")
-    assert stats["story"] == 1 and stats["investigated"] == 1
-    assert stats["with_facts"] == 1
-    assert f"classic-las-meninas{STORY_MARK}" in backend.prompts[0]  # 鉴赏题带故事标注
-    plain_header = next(ln for ln in backend.prompts[0].splitlines()
-                        if ln.startswith(f"[T{t_plain}]"))
-    assert STORY_MARK not in plain_header and FACTS_MARK not in plain_header
+    backend = _FakeBackend(
+        json.dumps({"topics": [                      # facts lane：经典题按厚材料题办
+            {"id": t_classic, "context": "巴洛克宫廷肖像", "concepts": [],
+             "facts": [{"fact": "越权补充（未标注题不许有）", "source": "X"}]},
+        ]}, ensure_ascii=False),
+        json.dumps({"topics": [                      # story lane
+            {"id": t_classic, "stories": [
+                {"story": "传说画中公主的裙摆改过三次……", "source": "普拉多官网"},
+                {"story": "画作 1734 年宫廷大火中被抢出……", "source": "艺术史媒体"},
+                {"story": "超上限该截掉的第三条", "source": "X"},
+                {"story": ""},                       # 空 story 容错跳过
+            ]},
+            {"id": 999999, "stories": [{"story": "幽灵 id", "source": "X"}]},
+        ]}, ensure_ascii=False))
+    conf = dataclasses.replace(load_config(), research_stories_max=2)
+    stats = stage_research(conn, conf, backend, "art", profile, "艺术", "2026-08-30")
+    assert len(backend.prompts) == 2                  # 两条 lane 各一次批量调用
+    facts_prompt, story_prompt = backend.prompts
+    assert "教科书级" in facts_prompt                  # 第一次 = researcher.md
+    assert "轶事猎手" in story_prompt                  # 第二次 = researcher_story.md
+    # 经典题在 facts lane 里已无故事标注（材料厚 → 也无 FACTS_MARK）
+    classic_header = next(ln for ln in facts_prompt.splitlines()
+                          if ln.startswith(f"[T{t_classic}]"))
+    assert FACTS_MARK not in classic_header and "故事" not in classic_header
+
+    # story 清单：经典题 + 新闻专题进，速览与论文题不进
+    assert f"[T{t_classic}] {STORY_CLASSIC_MARK}" in story_prompt
+    assert f"[T{t_plain}] {STORY_NEWS_MARK}" in story_prompt
+    assert f"[T{t_brief}]" not in story_prompt and f"[T{t_paper}]" not in story_prompt
+    assert stats["story_topics"] == 2 and stats["with_stories"] == 1
 
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
                                  (t_classic,)).fetchone()[0])
-    assert bg["facts"] == [{"fact": "传说画中公主的裙摆改过三次",
-                            "source": "普拉多官网"}]   # 材料厚也保留故事素材
+    assert bg["stories"] == [
+        {"story": "传说画中公主的裙摆改过三次……", "source": "普拉多官网"},
+        {"story": "画作 1734 年宫廷大火中被抢出……", "source": "艺术史媒体"}]  # 截到上限
+    assert bg["facts"] == []      # 经典题不再是调查补充题 → facts 代码层剥掉
+    bg_plain = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                       (t_plain,)).fetchone()[0])
+    assert bg_plain["stories"] == []   # 有资格但 agent 没覆盖 → 空列表
+    bg_brief = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                       (t_brief,)).fetchone()[0])
+    assert "stories" not in bg_brief   # 无资格的题不落该键
+
+    # research_stories_max=0 → 整条 lane 不跑（只有一次调用；否则 FakeBackend 会炸）
+    conn.execute("UPDATE topics SET background=NULL")
+    conn.commit()
+    backend0 = _FakeBackend(json.dumps({"topics": []}))
+    conf0 = dataclasses.replace(load_config(), research_stories_max=0)
+    stats0 = stage_research(conn, conf0, backend0, "art", profile, "艺术", "2026-08-30")
+    assert len(backend0.prompts) == 1 and stats0["story_topics"] == 0
 
 
 def test_checker_background_review_facts(tmp_path):
@@ -548,7 +612,8 @@ def test_checker_background_review_facts(tmp_path):
     ]}]}, ensure_ascii=False))
     stats = stage_checker(conn, load_config(), backend, "tech", "2026-01-01")
     assert stats == {"checked": 0, "bg_reviewed": 1, "bg_fixed": 0, "bg_dropped": 0,
-                     "bg_facts_fixed": 1, "bg_facts_dropped": 1}
+                     "bg_facts_fixed": 1, "bg_facts_dropped": 1,
+                     "bg_stories_fixed": 0, "bg_stories_dropped": 0}
     assert "[F2] 小错事实（来源：官方博客）" in backend.prompts[0]  # 审核清单带编号与来源
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
                                  (tid,)).fetchone()[0])
@@ -561,6 +626,64 @@ def test_checker_background_review_facts(tmp_path):
     # 幂等：已审的不再进清单（FakeBackend 无剩余输出，再调用会炸 → 证明没调）
     assert stage_checker(conn, load_config(), backend, "tech",
                          "2026-01-01") == {"checked": 0}
+
+
+def test_checker_background_review_stories(tmp_path):
+    """故事素材审核（2026-08-30）：只有 stories 的题也进审；ok/fix/drop 处置与统计；
+    未落 stories 键的题不被凭空补键。"""
+    import json
+
+    from rebas import db as database
+    from rebas.agents.stages import stage_checker
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    bg0 = {"context": "", "follow_up": "", "concepts": [], "facts": [],
+           "stories": [
+               {"story": "好故事", "source": "普拉多官网"},
+               {"story": "口径要收紧的故事", "source": "艺术史媒体"},
+               {"story": "查无此说的杜撰", "source": "X"},
+               {"story": "漏审的故事", "source": ""},
+           ]}
+    conn.execute(   # check_notes 已有 = 供稿核查那步跳过，本例只看背景审核
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " created_at, background, check_notes) VALUES"
+        " ('2026-08-30','art','T','k','[]','feature','x',?,'{}')",
+        (json.dumps(bg0, ensure_ascii=False),))
+    tid = conn.execute("SELECT id FROM topics").fetchone()["id"]
+    # 同板块另一题只有 concepts（story lane 没覆盖）→ 一并进审但不长出 stories 键
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " created_at, background) VALUES"
+        " ('2026-08-30','art','T2','k2','[]','brief','x',?)",
+        (json.dumps({"context": "", "follow_up": "", "facts": [],
+                     "concepts": [{"term": "风格派", "note": "解释"}]},
+                    ensure_ascii=False),))
+    tid2 = conn.execute("SELECT id FROM topics WHERE thread_key='k2'").fetchone()["id"]
+    conn.commit()
+
+    backend = _FakeBackend(json.dumps({"topics": [{"id": tid, "stories": [
+        {"i": 1, "verdict": "ok", "note": ""},
+        {"i": 2, "verdict": "fix", "note": "据传如此的收紧版表述"},
+        {"i": 3, "verdict": "drop", "note": ""},
+        {"i": "非法序号", "verdict": "drop"},        # 容错跳过
+    ]}]}, ensure_ascii=False))
+    stats = stage_checker(conn, load_config(), backend, "art", "2026-08-30")
+    assert stats == {"checked": 0, "bg_reviewed": 2, "bg_fixed": 0, "bg_dropped": 0,
+                     "bg_facts_fixed": 0, "bg_facts_dropped": 0,
+                     "bg_stories_fixed": 1, "bg_stories_dropped": 1}
+    assert "[S2] 口径要收紧的故事（来源：艺术史媒体）" in backend.prompts[0]
+    bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                 (tid,)).fetchone()[0])
+    assert bg["stories"] == [
+        {"story": "好故事", "source": "普拉多官网"},
+        {"story": "据传如此的收紧版表述", "source": "艺术史媒体"},  # fix 换文本留来源
+        {"story": "漏审的故事", "source": ""},                      # 漏裁决保守保留
+    ]
+    assert bg["reviewed"] is True
+    bg2 = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
+                                  (tid2,)).fetchone()[0])
+    assert "stories" not in bg2 and bg2["reviewed"] is True
 
 
 class TestEditorRefill:

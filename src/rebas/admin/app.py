@@ -46,6 +46,7 @@ SETTING_BOUNDS = {
     "paper_brief_fulltext_max_chars": (0, 200_000),
     "refill_min_topics": (0, 12),
     "research_facts_max": (0, 10),
+    "research_stories_max": (0, 10),
 }
 
 

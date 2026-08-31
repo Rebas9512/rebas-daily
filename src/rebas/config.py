@@ -101,6 +101,7 @@ class AppConfig:
     paper_brief_fulltext_max_chars: int
     refill_min_topics: int
     research_facts_max: int
+    research_stories_max: int
     image_review_boards: tuple[str, ...]
     classic_board: str
     classic_design_board: str
@@ -150,6 +151,7 @@ def load_config() -> AppConfig:
             publish.get("paper_brief_fulltext_max_chars", 12_000)),
         refill_min_topics=int(publish.get("refill_min_topics", 6)),
         research_facts_max=int(publish.get("research_facts_max", 0)),
+        research_stories_max=int(publish.get("research_stories_max", 0)),
         image_review_boards=tuple(publish.get("image_review_boards",
                                               ["art", "design"])),
         classic_board=str(publish.get("classic_board", "")),
