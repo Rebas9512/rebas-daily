@@ -109,7 +109,9 @@ type = "rss"
 endpoint = "https://bair.berkeley.edu/blog/feed.xml"
 content = "fulltext"
 fetch_interval_hours = 12
-enabled = true
+enabled = false             # 2026-09-02 禁用：blog 子域整体超时一周+（08-26 首见，连败 16，
+                            # 双端复测 feed/页面均超时；berkeley 主站 200=仅博客宕机）。
+                            # 低产源（7 月以来 13 条）不值久挂；复活条件：子域恢复响应即可原样启用
 
 [[source]]
 id = "mit-news-ai"

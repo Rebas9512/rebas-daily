@@ -18,26 +18,62 @@ from rebas.collect.base import canonicalize_url, content_hash
 from rebas.config import Source
 from rebas.models import RawItem
 
-# rankings 页是 Next.js flight 流：数据在 self.__next_f.push([1,"…"]) 的转义字符串里，
-# 拼接解码后取 "rankingData":[…]（2026-08-26 实测）。构建产物改版会破——找不到就抛错
-# 走 error 路径（admin 可见连败），绝不静默返回空。
+# rankings 页是 Next.js flight 流：数据在 self.__next_f.push([1,"…"]) 的转义字符串里。
+# 2026-08-26 版式=拼接解码后内联 "rankingData":[…]；2026-09-02 改版=rankingData 只剩
+# flight 引用（"$4a:props:state:queries:0:state:data"），真实数组挪进 React Query 脱水态
+# 的 "state":{"data":[…]}。两种版式都认；再改版找不到就抛错走 error 路径（admin 可见
+# 连败），绝不静默返回空。
 _FLIGHT_RE = re.compile(r'self\.__next_f\.push\(\[1,"(.*?)"\]\)', re.S)
 _DATE_SUFFIX_RE = re.compile(r"-\d{8}$")   # permaslug 带版本日期后缀，剥掉=模型页 slug
-_MODELS_LOOKBACK_DAYS = 7                  # 目录只出最近上架的（96h 出刊窗 + 缓冲）
+_MODELS_LOOKBACK_DAYS = 4                  # 目录只出最近上架的——与 96h 出刊窗对齐
+                                           # （更老的入库也永远进不了粗筛，白占库）
 
 
 def _fmt_tokens(tokens_b: float) -> str:
     return f"{tokens_b / 1000:.1f}T" if tokens_b >= 1000 else f"{tokens_b:.0f}B"
 
 
+def _is_ranking_array(arr) -> bool:
+    return (isinstance(arr, list) and bool(arr)
+            and isinstance(arr[0], dict) and bool(arr[0].get("model_permaslug")))
+
+
+def _extract_entries(blob: str) -> list[dict]:
+    dec = json.JSONDecoder()
+    i = blob.find('"rankingData":[')            # 2026-08-26 版式：内联数组
+    if i >= 0:
+        try:
+            arr, _end = dec.raw_decode(blob[i + len('"rankingData":'):])
+        except ValueError:
+            arr = None
+        if _is_ranking_array(arr):
+            return arr
+    # 2026-09 版式：React Query 脱水态——扫全部 "data":[ 候选，认首个榜单形状的数组
+    for m in re.finditer(r'"data":\[', blob):
+        try:
+            arr, _end = dec.raw_decode(blob[m.start() + len('"data":'):])
+        except ValueError:
+            continue
+        if _is_ranking_array(arr):
+            return arr
+    raise RuntimeError("rankings 页未找到 rankingData 数组——Next.js 构建产物疑似改版")
+
+
 def parse_openrouter_rankings(source: Source, data: bytes, **_) -> tuple[list[RawItem], int]:
     chunks = _FLIGHT_RE.findall(data.decode("utf-8", "ignore"))
     blob = "".join(c.encode("utf-8", "backslashreplace").decode("unicode_escape", "replace")
                    for c in chunks)
-    i = blob.find('"rankingData":[')
-    if i < 0:
-        raise RuntimeError("rankings 页未找到 rankingData——Next.js 构建产物疑似改版")
-    arr, _end = json.JSONDecoder().raw_decode(blob[i + len('"rankingData":'):])
+    arr = _extract_entries(blob)
+
+    # 榜内会残留改名/下架模型的陈旧快照行（2026-09-02 实测：stealth/ox-alpha 揭面为
+    # GLM 5.3 Flash 六天后仍挂着 08-26 的旧行）——只留最新日期的行，防死榜位天天复活
+    dates = {e["date"] for e in arr if e.get("date")}
+    stale = 0
+    if dates:
+        latest = max(dates)
+        fresh = [e for e in arr if e.get("date", latest) == latest]
+        stale = len(arr) - len(fresh)
+        arr = fresh
 
     def _tokens(e) -> int:
         return (e.get("total_completion_tokens") or 0) + (e.get("total_prompt_tokens") or 0)
@@ -85,7 +121,7 @@ def parse_openrouter_rankings(source: Source, data: bytes, **_) -> tuple[list[Ra
             content_hash=content_hash(slug),
             signals=signals,
         ))
-    return items, 0
+    return items, stale
 
 
 def parse_openrouter_models(source: Source, data: bytes, **_) -> tuple[list[RawItem], int]:

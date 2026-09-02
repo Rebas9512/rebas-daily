@@ -664,8 +664,43 @@ def test_openrouter_rankings_missing_data_raises():
         parse_openrouter_rankings(src, b'<html>self.__next_f.push([1,"nothing here"])</html>')
 
 
+# 2026-09-02 改版后的 flight 形态：rankingData 只剩引用（"$4a:…"），真实数组在
+# React Query 脱水态 "state":{"data":[…]}；且榜内残留改名模型的陈旧日期行
+OPENROUTER_RANKINGS_DEHYDRATED_FIXTURE = (
+    b'<html><script>self.__next_f.push([1,"102:[\\"$\\",\\"$L104\\",null,'
+    b'{\\"initialRanking\\":{\\"rankingData\\":\\"$4a:props:state:queries:0:state:data\\",'
+    b'\\"rankingType\\":\\"week\\"}}]\\n"])</script>'
+    b'<script>self.__next_f.push([1,"4a:[\\"$\\",\\"$L100\\",null,{\\"state\\":'
+    b'{\\"mutations\\":[],\\"queries\\":[{\\"dehydratedAt\\":1788391549923,\\"state\\":{\\"data\\":['
+    b'{\\"date\\":\\"2026-09-01 00:00:00\\",\\"model_permaslug\\":\\"z-ai/glm-5.3-flash-20260826\\",'
+    b'\\"total_completion_tokens\\":400000000000,\\"total_prompt_tokens\\":9600000000000,'
+    b'\\"count\\":290000000,\\"change\\":null},'
+    b'{\\"date\\":\\"2026-09-01 00:00:00\\",\\"model_permaslug\\":\\"openai/gpt-5.6-luna-20260709\\",'
+    b'\\"total_completion_tokens\\":500000000000,\\"total_prompt_tokens\\":9000000000000,'
+    b'\\"count\\":280000000,\\"change\\":1.29},'
+    b'{\\"date\\":\\"2026-08-26 00:00:00\\",\\"model_permaslug\\":\\"stealth/ox-alpha\\",'
+    b'\\"total_completion_tokens\\":400000000000,\\"total_prompt_tokens\\":3600000000000,'
+    b'\\"count\\":120000000,\\"change\\":null}'
+    b']}}]}}]\\n"])</script></html>'
+)
+
+
+def test_openrouter_rankings_dehydrated_format():
+    """2026-09 改版：脱水态里挖数组照常出条目；陈旧日期行（揭面马甲）滤掉计入第二返回值。"""
+    from rebas.collect.openrouter import parse_openrouter_rankings
+
+    src = make_source(id="or-rank", type="openrouter_rankings", board="repos")
+    items, stale = parse_openrouter_rankings(src, OPENROUTER_RANKINGS_DEHYDRATED_FIXTURE)
+    assert stale == 1                                                # ox-alpha 旧行滤掉
+    assert [it.title for it in items] == ["z-ai/glm-5.3-flash", "openai/gpt-5.6-luna"]
+    glm, luna = items
+    assert glm.signals["or_rank"] == 1 and "or_growth_pct" not in glm.signals
+    assert luna.signals["or_growth_pct"] == 129
+    assert glm.url == "https://openrouter.ai/z-ai/glm-5.3-flash"     # 日期后缀照剥
+
+
 def test_openrouter_models_parser():
-    """目录流：created 七天窗过滤（老模型永不出条目）、published_at=created 走正常出刊窗。"""
+    """目录流：created 回看窗过滤（老模型永不出条目）、published_at=created 走正常出刊窗。"""
     import time as _time
 
     from rebas.collect.openrouter import parse_openrouter_models
