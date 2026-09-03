@@ -561,14 +561,15 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
 
 # ---------- Stage 2.5 经典鉴赏栏目（2026-07-07，主编提名 + 图片闸门） ----------
 
-CLASSIC_ATTEMPTS = 3             # 提名重试上限：每次失败（拿不到图/30 天内重复）换一件
+CLASSIC_ATTEMPTS = 5             # 提名重试上限：每次退回（30 天内重复/拿不到图）换一件。
+                                 # 纯规则防重复后提名是"盲提"（提示词不喂已登清单，
+                                 # 2026-09-02 二轮用户定），撞窗概率升高，上限给足
 # 栏目合成条目的虚拟源（不是采集候选）：force-stage 回拨/重置时不放回正常选题流
 CLASSIC_SOURCE_IDS = ("classic-art", "classic-design", "classic-paper")
-CLASSIC_DONE_DAYS = 30           # 已鉴赏清单滑动窗口（2026-09-02 用户定）：窗口内硬性防
-                                 # 重复（清单+URL 闸门双层），更早的允许再登——清单因此
-                                 # 天然有界（两栏目合计 ~60 行），旧的 LIMIT 300 截断作废
+CLASSIC_DONE_DAYS = 30           # 防重复滑动窗口（2026-09-02 用户定）：窗口内规则硬挡，
+                                 # 更早的允许再登（栏目日更，全量防重不可持续）
 CLASSIC_GALLERY_SOURCE_IDS = ("classic-art", "classic-design")  # 鉴赏两栏目共享作品池：
-                                 # 建筑/标志性设计物两边都可能提名，清单必须跨栏目合并
+                                 # 建筑/标志性设计物两边都可能提名，防重复跨栏目合并计算
 CLASSIC_IMG_MIN_BYTES = 10_000   # 名作配图最低体量（过滤图标/占位图）
 CLASSIC_TARGET_LENGTH = 1800    # 导览员语域要展开讲艺术史与文化脉络（2026-08-05）
 _WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -617,66 +618,82 @@ def _validate_classic_image(client, url: str) -> bool:
         return False
 
 
-def _wiki_lead_image(client, wiki_title: str) -> str | None:
-    """直图通道：Wikipedia pageimages API 取条目主图（1600px 缩略，
-    upload.wikimedia.org 直链可外链，体量适配网页展示，不抓原始大图）。"""
+def _wiki_resolve(client, wiki_title: str) -> tuple[str | None, str | None]:
+    """一次 Wikipedia API 调用拿两样：重定向解析后的**规范条目名** + 主图直链
+    （1600px 缩略，upload.wikimedia.org 可外链）。
+
+    规范名是防重复的身份锚点：同一件作品换别名/重定向名提名（"Fallingwater
+    (Kaufmann Residence)" → "Fallingwater"），解析后现原形——这是清单/字符串
+    比对时代的头号漏判来源。API 失败时规范名退回原名（raw URL 比对仍然生效）。"""
     if not wiki_title:
-        return None
+        return None, None
     try:
         api = ("https://en.wikipedia.org/w/api.php?action=query&format=json"
                "&prop=pageimages&piprop=thumbnail&pithumbsize=1600&redirects=1"
                "&titles=" + urllib.parse.quote(wiki_title))
         data = json.loads(client.get(api).content)
         for page in (data.get("query") or {}).get("pages", {}).values():
-            src = (page.get("thumbnail") or {}).get("source")
-            if src:
-                return src
-    except Exception:  # noqa: BLE001 —— API 失败走主编直链兜底
-        return None
-    return None
+            return (page.get("title") or wiki_title,
+                    (page.get("thumbnail") or {}).get("source"))
+    except Exception:  # noqa: BLE001 —— API 失败：图走主编直链兜底
+        pass
+    return wiki_title, None
 
 
-def _classic_recent_done(conn, issue_date: str) -> list[tuple[str, str]]:
-    """近 CLASSIC_DONE_DAYS 天两鉴赏栏目已登作品：[(条目标题, 最近登刊日)]，按日期降序。
+_CLASSIC_NAME_STRIP_RE = re.compile(
+    r"[\s《》〈〉“”\"'’‘·•\-—–_:：,，.。!！?？()（）\[\]]+")
 
-    以 topics 为准（登过刊的才算），跨栏目合并——2026-08 实况教训：Fallingwater
-    艺术版首鉴后，同一维基页在设计版每逢建筑日被重提共 4 次，因为旧清单按
-    source_id 分栏目查 raw_items，而 url_canonical 合并让条目归属首提栏目，
-    另一栏目的清单永远看不见它。含当期已提名的（艺术批次先于设计批次跑，
-    同日跨栏目撞车也要挡）。"""
-    date_by_iid: dict[int, str] = {}
-    for t in conn.execute(
-            "SELECT issue_date, item_ids FROM topics"
-            " WHERE thread_key LIKE 'classic-%' AND issue_date >= date(?, ?)",
-            (issue_date, f"-{CLASSIC_DONE_DAYS} day")).fetchall():
+
+def _classic_name_key(s: str) -> str:
+    """作品名归一键：去空白/书名号/引号/连字符等再小写——身份比对用**精确相等**
+    （不做包含匹配，防"大卫"误伤"大卫之星"这类短名撞长名）。"""
+    return _CLASSIC_NAME_STRIP_RE.sub("", s or "").lower()
+
+
+def _classic_recent_identity(conn, issue_date: str) -> dict:
+    """近 CLASSIC_DONE_DAYS 天两鉴赏栏目登刊作品的身份集（防重复规则的比对基准）。
+
+    以 topics 为准（登过刊才算）、跨栏目合并、无上界日期（同日跨栏目：艺术批次
+    先于设计批次跑，当期艺术提名也要挡）——2026-08 Fallingwater 实况教训：旧清单
+    按 source_id 分栏目查，url_canonical 合并让条目归属首提栏目，另一栏目永远
+    看不见，遂每逢建筑日重登。三路身份：
+    - urls：条目 url_canonical（首提时已存规范维基名构成的 URL）；
+    - names：条目标题"作品 — 作者（年代）"的作品段按括号拆片归一（中英名都收）；
+    - threads：栏目选题的 thread_key（同一作品的 slug 高度稳定——五次重登的
+      thread_key 一字不差）。"""
+    urls: set[str] = set()
+    names: set[str] = set()
+    threads: set[str] = set()
+    date_rows = conn.execute(
+        "SELECT thread_key, item_ids FROM topics"
+        " WHERE thread_key LIKE 'classic-%' AND issue_date >= date(?, ?)",
+        (issue_date, f"-{CLASSIC_DONE_DAYS} day")).fetchall()
+    iids: set[int] = set()
+    for t in date_rows:
+        threads.add(t["thread_key"])
         try:
-            ids = json.loads(t["item_ids"] or "[]")
+            iids.update(i for i in json.loads(t["item_ids"] or "[]")
+                        if isinstance(i, int))
         except ValueError:
             continue
-        for iid in ids:
-            if isinstance(iid, int):
-                date_by_iid[iid] = max(t["issue_date"], date_by_iid.get(iid, ""))
-    if not date_by_iid:
-        return []
-    rows = conn.execute(
-        f"SELECT id, title FROM raw_items"
-        f" WHERE id IN ({','.join('?' * len(date_by_iid))}) AND source_id IN"
-        f" ({','.join('?' * len(CLASSIC_GALLERY_SOURCE_IDS))})",
-        (*date_by_iid, *CLASSIC_GALLERY_SOURCE_IDS)).fetchall()
-    return sorted(((r["title"], date_by_iid[r["id"]]) for r in rows),
-                  key=lambda x: x[1], reverse=True)
+    if iids:
+        for r in conn.execute(
+                f"SELECT title, url_canonical FROM raw_items"
+                f" WHERE id IN ({','.join('?' * len(iids))}) AND source_id IN"
+                f" ({','.join('?' * len(CLASSIC_GALLERY_SOURCE_IDS))})",
+                (*iids, *CLASSIC_GALLERY_SOURCE_IDS)):
+            urls.add(r["url_canonical"])
+            artwork_part = r["title"].split(" — ")[0]
+            for frag in re.split(r"[（）()《》]", artwork_part):
+                key = _classic_name_key(frag)
+                if len(key) >= 2:
+                    names.add(key)
+    return {"urls": urls, "names": names, "threads": threads}
 
 
-def _classic_recently_covered(conn, issue_date: str, url_canonical: str) -> bool:
-    """URL 身份的 30 天防重复闸门：同一维基页=同一件作品（标题变体绕不过它）。"""
-    row = conn.execute("SELECT id FROM raw_items WHERE url_canonical=?",
-                       (url_canonical,)).fetchone()
-    if row is None:
-        return False
-    return conn.execute(
-        "SELECT 1 FROM topics WHERE thread_key LIKE 'classic-%'"
-        " AND item_ids=? AND issue_date >= date(?, ?)",
-        (f"[{row['id']}]", issue_date, f"-{CLASSIC_DONE_DAYS} day")).fetchone() is not None
+def _classic_wiki_url(title: str) -> str:
+    return ("https://en.wikipedia.org/wiki/"
+            + urllib.parse.quote(title.replace(" ", "_")))
 
 
 def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
@@ -694,10 +711,12 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
     取材阶段自然抓正文当供稿材料、收页内图库；图直链进 image_urls 供撰写期审选）
     + feature 选题（thread_key 前缀 classic-，前端识别为栏目）。
 
-    防重复（2026-09-02 重做）：已鉴赏清单=近 CLASSIC_DONE_DAYS 天**两栏目合并**的
-    登刊作品（滑窗天然有界，提示词层）+ URL 身份闸门（代码层，
-    _classic_recently_covered——同一维基页 30 天内登过即退回重提，标题变体与
-    跨栏目都挡）。更早的作品允许再登（用户定的取舍：窗口硬保证 + 清单不累积）。
+    防重复（2026-09-02 二轮，用户定：不喂清单，纯规则严格化）：30 天滑窗身份集
+    （_classic_recent_identity，两栏目合并）× 四条规则顺序比对——①作品名归一键
+    ②thread_key ③原始 wiki URL ④重定向解析后的规范 wiki URL（_wiki_resolve，
+    堵"换条目名/别名提同一作品"的漏判）。命中即退回重提（retry_block 括注原因），
+    窗口外允许再登。提名模板不再维护已鉴赏清单——清单是建议不是约束，Fallingwater
+    五连登证明约束必须在代码层。
 
     幂等：本期该板块已有 classic- 选题即跳过；背调照常补作品来历与细节
     （艺术板块=纯背景故事模式），材料薄时自动触发联网调查。"""
@@ -705,9 +724,8 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
             "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
             " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
         return {stat_key: "已有栏目选题"}
-    done = _classic_recent_done(conn, issue_date)
-    done_block = "\n".join(f"- {t}（{d}）" for t, d in done) \
-        or f"（近 {CLASSIC_DONE_DAYS} 天无已鉴赏作品）"
+    ident = _classic_recent_identity(conn, issue_date)
+    dup_msg = f"（近 {CLASSIC_DONE_DAYS} 天内已鉴赏过，含另一栏目）"
 
     rejected: list[str] = []
     with make_client() as client:
@@ -715,11 +733,12 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
             retry_block = ""
             if rejected:
                 retry_block = ("**注意：下列作品本轮提名已被退回（原因见括注），"
-                               "请换别的作品**（换作品，不是换图链或换说法）："
+                               "请换别的作品**（换作品，不是换图链、换译名或换"
+                               "维基条目名——同一件作品怎么提都会被认出来退回）："
                                + "、".join(rejected))
             prompt = render_prompt(
                 template, day_rule=day_rule or _classic_day_rule(issue_date),
-                done_block=done_block, retry_block=retry_block)
+                retry_block=retry_block)
             result = complete_json(backend, prompt, role="classic")
             artwork = str(result.get("artwork") or "").strip()
             artist = str(result.get("artist") or "").strip()
@@ -728,19 +747,34 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
             if not artwork or not (wiki_title or own_img):
                 rejected.append(artwork or "（字段不全的提名）")
                 continue
+            key = _normalize_thread_key(
+                str(result.get("thread_key") or f"classic-{wiki_title or artwork}"))
+            if not key.startswith("classic-"):
+                key = ("classic-" + key)[:80]
 
-            # 30 天防重复闸门（2026-09-02）：URL 身份先于图片验证——同一维基页
-            # =同一件作品，标题变体骗得过清单骗不过它；跨栏目同样生效
-            page_url = ("https://en.wikipedia.org/wiki/"
-                        + urllib.parse.quote(wiki_title.replace(" ", "_"))
-                        if wiki_title else "")
-            if page_url and _classic_recently_covered(
-                    conn, issue_date, canonicalize_url(page_url)):
-                rejected.append(f"{artwork}（近 {CLASSIC_DONE_DAYS} 天内已鉴赏过）")
+            # ——30 天防重复规则（2026-09-02 二轮）。免网络的三条先比：
+            # ①作品名归一键（中英名都在身份集里）②thread_key（同一作品的 slug
+            # 高度稳定）③原始 wiki URL——命中即退回，连图都不用抓
+            if (_classic_name_key(artwork) in ident["names"]
+                    or _classic_name_key(wiki_title) in ident["names"]
+                    or key in ident["threads"]
+                    or (wiki_title and canonicalize_url(
+                        _classic_wiki_url(wiki_title)) in ident["urls"])):
+                rejected.append(f"{artwork}{dup_msg}")
+                continue
+
+            # ④规范名比对：redirects=1 解析出规范条目名（顺带拿主图，一次调用）
+            # ——换别名/重定向名提同一件作品在这里现原形
+            canonical, wiki_img = (_wiki_resolve(client, wiki_title)
+                                   if wiki_title else (None, None))
+            page_url = _classic_wiki_url(canonical or wiki_title) if wiki_title else ""
+            if page_url and (canonicalize_url(page_url) in ident["urls"]
+                             or _classic_name_key(canonical or "") in ident["names"]):
+                rejected.append(f"{artwork}{dup_msg}")
                 continue
 
             images: list[str] = []
-            for cand in (_wiki_lead_image(client, wiki_title), own_img):
+            for cand in (wiki_img, own_img):
                 if cand and cand not in images \
                         and _validate_classic_image(client, cand):
                     images.append(cand)
@@ -761,11 +795,6 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                                (item.url_canonical,)).fetchone()
             conn.execute("UPDATE raw_items SET status='selected' WHERE id=?",
                          (row["id"],))
-
-            key = _normalize_thread_key(
-                str(result.get("thread_key") or f"classic-{wiki_title or artwork}"))
-            if not key.startswith("classic-"):
-                key = ("classic-" + key)[:80]
             cur = conn.execute(
                 "INSERT OR IGNORE INTO topics (issue_date, board, title, thread_key,"
                 " item_ids, decision, slot, target_length,"

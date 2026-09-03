@@ -839,8 +839,8 @@ class TestClassicColumn:
         from rebas.agents import stages
 
         conn = self._conn(tmp_path)
-        monkeypatch.setattr(stages, "_wiki_lead_image",
-                            lambda c, t: "https://upload.wikimedia.org/starry.jpg")
+        monkeypatch.setattr(stages, "_wiki_resolve",
+                            lambda c, t: (t, "https://upload.wikimedia.org/starry.jpg"))
         monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
         backend = _FakeBackend(json.dumps({
             "artwork": "星月夜", "artist": "Vincent van Gogh", "year": "1889",
@@ -868,8 +868,8 @@ class TestClassicColumn:
         from rebas.agents import stages
 
         conn = self._conn(tmp_path)
-        monkeypatch.setattr(stages, "_wiki_lead_image",
-                            lambda c, t: "https://upload.wikimedia.org/chair.jpg")
+        monkeypatch.setattr(stages, "_wiki_resolve",
+                            lambda c, t: (t, "https://upload.wikimedia.org/chair.jpg"))
         monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
         backend = _FakeBackend(json.dumps({
             "artwork": "红蓝椅", "artist": "Gerrit Rietveld", "year": "1917",
@@ -924,7 +924,7 @@ class TestClassicColumn:
         from rebas.agents import stages
 
         conn = self._conn(tmp_path)
-        monkeypatch.setattr(stages, "_wiki_lead_image", lambda c, t: None)
+        monkeypatch.setattr(stages, "_wiki_resolve", lambda c, t: (t, None))
         monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: False)
 
         def nom(name):
@@ -932,7 +932,8 @@ class TestClassicColumn:
                                "title": name, "wiki_title": name, "image_url": "",
                                "reason": "r", "thread_key": f"classic-{name}"},
                               ensure_ascii=False)
-        backend = _FakeBackend(nom("作品甲"), nom("作品乙"), nom("作品丙"))
+        backend = _FakeBackend(nom("作品甲"), nom("作品乙"), nom("作品丙"),
+                               nom("作品丁"), nom("作品戊"))
         s = stages._nominate_classic(conn, self._conf(), backend, "art", "2026-07-11")
         assert s["classic"].startswith("放弃")
         assert "自由日" in backend.prompts[0]          # 2026-07-11 = 周六
@@ -948,14 +949,18 @@ class TestClassicColumn:
         from rebas.agents import stages
 
         conn = self._conn(tmp_path)
-        monkeypatch.setattr(stages, "_wiki_lead_image",
-                            lambda c, t: "https://upload.wikimedia.org/x.jpg")
+        # 规范名解析桩：别名/重定向条目名 → 规范名（真实 API 是 redirects=1）
+        redirects = {"Fallingwater (Kaufmann Residence)": "Fallingwater"}
+        monkeypatch.setattr(
+            stages, "_wiki_resolve",
+            lambda c, t: (redirects.get(t, t), "https://upload.wikimedia.org/x.jpg"))
         monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
 
-        def nom(name, wiki):
+        def nom(name, wiki, thread=None):
             return json.dumps({"artwork": name, "artist": "A", "year": "1935",
                                "title": name, "wiki_title": wiki, "image_url": "",
-                               "reason": "r", "thread_key": f"classic-{wiki}"},
+                               "reason": "r",
+                               "thread_key": thread or f"classic-{wiki}"},
                               ensure_ascii=False)
 
         # 艺术版先鉴赏流水别墅
@@ -963,28 +968,34 @@ class TestClassicColumn:
         s = stages._nominate_classic(conn, self._conf(), backend, "art", "2026-08-08")
         assert "流水别墅" in s["classic"]
 
-        # 三天后设计版（建筑日）：清单里可见艺术版的流水别墅；模型仍重提 →
-        # URL 闸门退回（重试提示带"已鉴赏过"），换潘顿椅才成题
-        backend2 = _FakeBackend(nom("流水别墅", "Fallingwater"),
-                                nom("潘顿椅", "Panton Chair"))
+        # 三天后设计版（建筑日）重提同一作品的四种姿势，每条规则各接一手：
+        # ①同名（作品名归一键）②改名+同 slug（thread_key）③改名+改 slug+同条目名
+        # （原始 URL）④改名+改 slug+重定向别名条目（规范名解析后现原形）——
+        # 全被退回，第 5 次换潘顿椅才成题
+        backend2 = _FakeBackend(
+            nom("流水别墅", "Fallingwater"),
+            nom("落水山庄", "Kaufmann House", thread="classic-fallingwater"),
+            nom("落水山庄", "Fallingwater", thread="classic-kaufmann-house"),
+            nom("落水山庄", "Fallingwater (Kaufmann Residence)",
+                thread="classic-kaufmann-house"),
+            nom("潘顿椅", "Panton Chair"))
         s2 = stages._nominate_classic(
             conn, self._conf(), backend2, "design", "2026-08-11",
             source_id="classic-design", template="editor_classic_design",
             day_rule=stages._classic_design_day_rule("2026-08-11"),
             stat_key="classic_design")
         assert "潘顿椅" in s2["classic_design"]
-        assert "流水别墅 — A（1935）" in backend2.prompts[0]   # 跨栏目清单可见
-        assert "近 30 天内已鉴赏过" in backend2.prompts[1]      # 闸门退回进重试提示
+        assert "近 30 天内已鉴赏过" in backend2.prompts[1]      # 退回原因进重试提示
+        assert backend2.prompts[4].count("已鉴赏过") >= 1       # 四次退回都在括注里
         assert conn.execute(
             "SELECT count(*) FROM topics WHERE thread_key='classic-fallingwater'"
-        ).fetchone()[0] == 1                                    # 没有第二次成题
+        ).fetchone()[0] == 1                                    # 始终没有第二次成题
 
-        # 窗口外（首鉴 53 天后）：清单不再展示、闸门放行，同一作品允许再登
+        # 窗口外（首鉴 53 天后）：规则放行，同一作品允许再登
         backend3 = _FakeBackend(nom("流水别墅", "Fallingwater"))
         s3 = stages._nominate_classic(conn, self._conf(), backend3, "art",
                                       "2026-09-30")
         assert "流水别墅" in s3["classic"]
-        assert "近 30 天无已鉴赏作品" in backend3.prompts[0]    # 滑窗滚空
 
     def test_stage_editor_runs_classic_even_when_regular_skips(self, tmp_path,
                                                                monkeypatch):
