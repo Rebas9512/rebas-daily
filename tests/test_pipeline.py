@@ -940,6 +940,52 @@ class TestClassicColumn:
         assert conn.execute("SELECT count(*) FROM topics").fetchone()[0] == 0
         assert conn.execute("SELECT count(*) FROM raw_items").fetchone()[0] == 0
 
+    def test_dedupe_window_cross_column(self, tmp_path, monkeypatch):
+        """30 天防重复（2026-09-02，Fallingwater 实况复盘）：清单跨栏目合并可见、
+        URL 闸门把重提退回重试、窗口外同一作品放行再登。"""
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_wiki_lead_image",
+                            lambda c, t: "https://upload.wikimedia.org/x.jpg")
+        monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
+
+        def nom(name, wiki):
+            return json.dumps({"artwork": name, "artist": "A", "year": "1935",
+                               "title": name, "wiki_title": wiki, "image_url": "",
+                               "reason": "r", "thread_key": f"classic-{wiki}"},
+                              ensure_ascii=False)
+
+        # 艺术版先鉴赏流水别墅
+        backend = _FakeBackend(nom("流水别墅", "Fallingwater"))
+        s = stages._nominate_classic(conn, self._conf(), backend, "art", "2026-08-08")
+        assert "流水别墅" in s["classic"]
+
+        # 三天后设计版（建筑日）：清单里可见艺术版的流水别墅；模型仍重提 →
+        # URL 闸门退回（重试提示带"已鉴赏过"），换潘顿椅才成题
+        backend2 = _FakeBackend(nom("流水别墅", "Fallingwater"),
+                                nom("潘顿椅", "Panton Chair"))
+        s2 = stages._nominate_classic(
+            conn, self._conf(), backend2, "design", "2026-08-11",
+            source_id="classic-design", template="editor_classic_design",
+            day_rule=stages._classic_design_day_rule("2026-08-11"),
+            stat_key="classic_design")
+        assert "潘顿椅" in s2["classic_design"]
+        assert "流水别墅 — A（1935）" in backend2.prompts[0]   # 跨栏目清单可见
+        assert "近 30 天内已鉴赏过" in backend2.prompts[1]      # 闸门退回进重试提示
+        assert conn.execute(
+            "SELECT count(*) FROM topics WHERE thread_key='classic-fallingwater'"
+        ).fetchone()[0] == 1                                    # 没有第二次成题
+
+        # 窗口外（首鉴 53 天后）：清单不再展示、闸门放行，同一作品允许再登
+        backend3 = _FakeBackend(nom("流水别墅", "Fallingwater"))
+        s3 = stages._nominate_classic(conn, self._conf(), backend3, "art",
+                                      "2026-09-30")
+        assert "流水别墅" in s3["classic"]
+        assert "近 30 天无已鉴赏作品" in backend3.prompts[0]    # 滑窗滚空
+
     def test_stage_editor_runs_classic_even_when_regular_skips(self, tmp_path,
                                                                monkeypatch):
         import json

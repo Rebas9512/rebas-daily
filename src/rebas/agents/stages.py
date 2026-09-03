@@ -561,9 +561,14 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
 
 # ---------- Stage 2.5 经典鉴赏栏目（2026-07-07，主编提名 + 图片闸门） ----------
 
-CLASSIC_ATTEMPTS = 3             # 提名重试上限：每次失败=这件作品拿不到可用图，换一件
+CLASSIC_ATTEMPTS = 3             # 提名重试上限：每次失败（拿不到图/30 天内重复）换一件
 # 栏目合成条目的虚拟源（不是采集候选）：force-stage 回拨/重置时不放回正常选题流
 CLASSIC_SOURCE_IDS = ("classic-art", "classic-design", "classic-paper")
+CLASSIC_DONE_DAYS = 30           # 已鉴赏清单滑动窗口（2026-09-02 用户定）：窗口内硬性防
+                                 # 重复（清单+URL 闸门双层），更早的允许再登——清单因此
+                                 # 天然有界（两栏目合计 ~60 行），旧的 LIMIT 300 截断作废
+CLASSIC_GALLERY_SOURCE_IDS = ("classic-art", "classic-design")  # 鉴赏两栏目共享作品池：
+                                 # 建筑/标志性设计物两边都可能提名，清单必须跨栏目合并
 CLASSIC_IMG_MIN_BYTES = 10_000   # 名作配图最低体量（过滤图标/占位图）
 CLASSIC_TARGET_LENGTH = 1800    # 导览员语域要展开讲艺术史与文化脉络（2026-08-05）
 _WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -631,6 +636,49 @@ def _wiki_lead_image(client, wiki_title: str) -> str | None:
     return None
 
 
+def _classic_recent_done(conn, issue_date: str) -> list[tuple[str, str]]:
+    """近 CLASSIC_DONE_DAYS 天两鉴赏栏目已登作品：[(条目标题, 最近登刊日)]，按日期降序。
+
+    以 topics 为准（登过刊的才算），跨栏目合并——2026-08 实况教训：Fallingwater
+    艺术版首鉴后，同一维基页在设计版每逢建筑日被重提共 4 次，因为旧清单按
+    source_id 分栏目查 raw_items，而 url_canonical 合并让条目归属首提栏目，
+    另一栏目的清单永远看不见它。含当期已提名的（艺术批次先于设计批次跑，
+    同日跨栏目撞车也要挡）。"""
+    date_by_iid: dict[int, str] = {}
+    for t in conn.execute(
+            "SELECT issue_date, item_ids FROM topics"
+            " WHERE thread_key LIKE 'classic-%' AND issue_date >= date(?, ?)",
+            (issue_date, f"-{CLASSIC_DONE_DAYS} day")).fetchall():
+        try:
+            ids = json.loads(t["item_ids"] or "[]")
+        except ValueError:
+            continue
+        for iid in ids:
+            if isinstance(iid, int):
+                date_by_iid[iid] = max(t["issue_date"], date_by_iid.get(iid, ""))
+    if not date_by_iid:
+        return []
+    rows = conn.execute(
+        f"SELECT id, title FROM raw_items"
+        f" WHERE id IN ({','.join('?' * len(date_by_iid))}) AND source_id IN"
+        f" ({','.join('?' * len(CLASSIC_GALLERY_SOURCE_IDS))})",
+        (*date_by_iid, *CLASSIC_GALLERY_SOURCE_IDS)).fetchall()
+    return sorted(((r["title"], date_by_iid[r["id"]]) for r in rows),
+                  key=lambda x: x[1], reverse=True)
+
+
+def _classic_recently_covered(conn, issue_date: str, url_canonical: str) -> bool:
+    """URL 身份的 30 天防重复闸门：同一维基页=同一件作品（标题变体绕不过它）。"""
+    row = conn.execute("SELECT id FROM raw_items WHERE url_canonical=?",
+                       (url_canonical,)).fetchone()
+    if row is None:
+        return False
+    return conn.execute(
+        "SELECT 1 FROM topics WHERE thread_key LIKE 'classic-%'"
+        " AND item_ids=? AND issue_date >= date(?, ?)",
+        (f"[{row['id']}]", issue_date, f"-{CLASSIC_DONE_DAYS} day")).fetchone() is not None
+
+
 def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                       issue_date: str, *, source_id: str = "classic-art",
                       template: str = "editor_classic",
@@ -646,24 +694,29 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
     取材阶段自然抓正文当供稿材料、收页内图库；图直链进 image_urls 供撰写期审选）
     + feature 选题（thread_key 前缀 classic-，前端识别为栏目）。
 
+    防重复（2026-09-02 重做）：已鉴赏清单=近 CLASSIC_DONE_DAYS 天**两栏目合并**的
+    登刊作品（滑窗天然有界，提示词层）+ URL 身份闸门（代码层，
+    _classic_recently_covered——同一维基页 30 天内登过即退回重提，标题变体与
+    跨栏目都挡）。更早的作品允许再登（用户定的取舍：窗口硬保证 + 清单不累积）。
+
     幂等：本期该板块已有 classic- 选题即跳过；背调照常补作品来历与细节
     （艺术板块=纯背景故事模式），材料薄时自动触发联网调查。"""
     if conn.execute(
             "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
             " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
         return {stat_key: "已有栏目选题"}
-    done = [r["title"] for r in conn.execute(
-        "SELECT title FROM raw_items WHERE source_id=?"
-        " ORDER BY id DESC LIMIT 300", (source_id,))]
-    done_block = "\n".join(f"- {t}" for t in done) or "（栏目首期，还没有已鉴赏作品）"
+    done = _classic_recent_done(conn, issue_date)
+    done_block = "\n".join(f"- {t}（{d}）" for t, d in done) \
+        or f"（近 {CLASSIC_DONE_DAYS} 天无已鉴赏作品）"
 
     rejected: list[str] = []
     with make_client() as client:
         for _ in range(CLASSIC_ATTEMPTS):
             retry_block = ""
             if rejected:
-                retry_block = ("**注意：下列作品刚提名过但拿不到可用图片，请换一件作品**"
-                               "（换作品，不是换图链）：" + "、".join(rejected))
+                retry_block = ("**注意：下列作品本轮提名已被退回（原因见括注），"
+                               "请换别的作品**（换作品，不是换图链或换说法）："
+                               + "、".join(rejected))
             prompt = render_prompt(
                 template, day_rule=day_rule or _classic_day_rule(issue_date),
                 done_block=done_block, retry_block=retry_block)
@@ -676,18 +729,26 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                 rejected.append(artwork or "（字段不全的提名）")
                 continue
 
+            # 30 天防重复闸门（2026-09-02）：URL 身份先于图片验证——同一维基页
+            # =同一件作品，标题变体骗得过清单骗不过它；跨栏目同样生效
+            page_url = ("https://en.wikipedia.org/wiki/"
+                        + urllib.parse.quote(wiki_title.replace(" ", "_"))
+                        if wiki_title else "")
+            if page_url and _classic_recently_covered(
+                    conn, issue_date, canonicalize_url(page_url)):
+                rejected.append(f"{artwork}（近 {CLASSIC_DONE_DAYS} 天内已鉴赏过）")
+                continue
+
             images: list[str] = []
             for cand in (_wiki_lead_image(client, wiki_title), own_img):
                 if cand and cand not in images \
                         and _validate_classic_image(client, cand):
                     images.append(cand)
             if not images:
-                rejected.append(f"{artwork}（{artist}）")
+                rejected.append(f"{artwork}（{artist}）（拿不到可用图）")
                 continue
 
-            page_url = ("https://en.wikipedia.org/wiki/"
-                        + urllib.parse.quote(wiki_title.replace(" ", "_"))
-                        if wiki_title else images[0])
+            page_url = page_url or images[0]
             item = RawItem(
                 source_id=source_id, board=board, kind="article",
                 url=page_url, url_canonical=canonicalize_url(page_url),
