@@ -24,6 +24,44 @@ class TestExtractJson:
             extract_json("抱歉，我无法完成")
 
 
+class TestMissingQuoteRepair:
+    """定点修补丢失的开引号（2026-09-03 repos 背调 `"term":localhost"` 事故）。"""
+
+    def test_missing_opening_quote_in_value(self):
+        # 生产原样：概念名开引号丢失，闭引号仍在，回喂重试两次都复现
+        text = ('{"topics":[{"id":5400,"concepts":[{"term":"端口号","note":"编号"},'
+                '{"term":localhost","note":"本机"}],"facts":[]}]}')
+        out = extract_json(text)
+        assert out["topics"][0]["concepts"][1] == {"term": "localhost", "note": "本机"}
+
+    def test_missing_opening_quote_leading_dot(self):
+        text = '{"concepts":[{"term":.localhost域名","note":"x"}]}'
+        assert extract_json(text)["concepts"][0]["term"] == ".localhost域名"
+
+    def test_missing_opening_quote_in_key(self):
+        assert extract_json('{"a": 1, b": 2}') == {"a": 1, "b": 2}
+
+    def test_multiple_defects_and_trailing_prose(self):
+        text = '{"a":x","b":[{"c":y"}]}\n以上是结果。'
+        assert extract_json(text) == {"a": "x", "b": [{"c": "y"}]}
+
+    def test_structural_errors_still_raise(self):
+        # 位置上是结构字符：不补引号、不改语义，照旧报错
+        for bad in ('{"a": }', '[1, ]', '{"a": undefined}', "{'a': 1}"):
+            with pytest.raises(LLMError):
+                extract_json(bad)
+
+    def test_literals_untouched(self):
+        assert extract_json('{"a": true, "b": null, "c": -1.5}') == \
+            {"a": True, "b": None, "c": -1.5}
+
+    def test_repair_budget(self):
+        # 超过上限（5 处）说明整体已坏：不再硬救
+        text = "{" + ",".join(f'"k{i}":v{i}"' for i in range(6)) + "}"
+        with pytest.raises(LLMError):
+            extract_json(text)
+
+
 class FakeBackend:
     def __init__(self, outputs):
         self.outputs = list(outputs)

@@ -19,6 +19,30 @@ class LLMBackend(Protocol):
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.S)
 
+# 定点修补上限：一份输出里最多补几处丢失的引号（超过说明整体已坏，不再硬救）
+_REPAIR_MAX = 5
+_STRUCTURAL = '"{}[],:'
+
+
+def _loads_with_repair(text: str):
+    """json.loads 加定点修补——模型偶发丢掉字符串的**开引号**。
+
+    2026-09-03 repos 背调连续两次在同一概念上吐出 `"term":localhost"`，把报错喂回去
+    重试也复现，同一板块整批卡死。这类缺陷闭引号仍在，只缺开头一个字符，按解析器
+    报错位置（"Expecting value" / "Expecting property name"）补一个引号再试即可；
+    位置上是结构字符（如 `[1,]`、`{"a":}`）或其他类型的错误一律原样抛出，绝不改语义。
+    """
+    for _ in range(_REPAIR_MAX):
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as err:
+            fixable = (err.msg == "Expecting value"
+                       or err.msg.startswith("Expecting property name"))
+            if not fixable or err.pos >= len(text) or text[err.pos] in _STRUCTURAL:
+                raise
+            text = text[:err.pos] + '"' + text[err.pos:]
+    return json.loads(text)
+
 
 def extract_json(text: str):
     """从模型输出中提取 JSON：剥 code fence → 找最外层 {} 或 []。"""
@@ -41,7 +65,7 @@ def extract_json(text: str):
         if cut < 0:
             break
         try:
-            return json.loads(candidate[: cut + 1])
+            return _loads_with_repair(candidate[: cut + 1])
         except json.JSONDecodeError:
             end = cut
     raise LLMError(f"JSON 解析失败: {candidate[:200]}")
