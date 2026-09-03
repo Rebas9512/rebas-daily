@@ -660,6 +660,10 @@ def _classic_recent_identity(conn, issue_date: str, days: int,
     艺术版首用：新故事化写法重做旧内容）。按 topic 的 board 判定，所以另一栏目
     引用过同一作品的近期选题（设计版的流水别墅）不受重置影响照常挡。
 
+    display 键=同源的展示清单 [(条目标题, 最近登刊日)]（2026-09-03 回归，用户定）：
+    喂给提名模板做**导流**——盲提撞窗每次退回都烧一次带搜索的调用，清单省掉试错；
+    规则仍是唯一保证层。同一份过滤结果出两样产物，清单与规则永不脱节（含重置语义）。
+
     以 topics 为准（登过刊才算）、跨栏目合并、无上界日期（同日跨栏目：艺术批次
     先于设计批次跑，当期艺术提名也要挡）——2026-08 Fallingwater 实况教训：旧清单
     按 source_id 分栏目查，url_canonical 合并让条目归属首提栏目，另一栏目永远
@@ -676,29 +680,33 @@ def _classic_recent_identity(conn, issue_date: str, days: int,
         "SELECT board, issue_date, thread_key, item_ids FROM topics"
         " WHERE thread_key LIKE 'classic-%' AND issue_date >= date(?, ?)",
         (issue_date, f"-{days} day")).fetchall()
-    iids: set[int] = set()
+    date_by_iid: dict[int, str] = {}
     for t in date_rows:
         if t["issue_date"] < reset_dates.get(t["board"], ""):
             continue               # 重置日前的本板块栏目历史不计入
         threads.add(t["thread_key"])
         try:
-            iids.update(i for i in json.loads(t["item_ids"] or "[]")
-                        if isinstance(i, int))
+            for i in json.loads(t["item_ids"] or "[]"):
+                if isinstance(i, int):
+                    date_by_iid[i] = max(t["issue_date"], date_by_iid.get(i, ""))
         except ValueError:
             continue
-    if iids:
+    display: list[tuple[str, str]] = []
+    if date_by_iid:
         for r in conn.execute(
-                f"SELECT title, url_canonical FROM raw_items"
-                f" WHERE id IN ({','.join('?' * len(iids))}) AND source_id IN"
+                f"SELECT id, title, url_canonical FROM raw_items"
+                f" WHERE id IN ({','.join('?' * len(date_by_iid))}) AND source_id IN"
                 f" ({','.join('?' * len(CLASSIC_GALLERY_SOURCE_IDS))})",
-                (*iids, *CLASSIC_GALLERY_SOURCE_IDS)):
+                (*date_by_iid, *CLASSIC_GALLERY_SOURCE_IDS)):
             urls.add(r["url_canonical"])
+            display.append((r["title"], date_by_iid[r["id"]]))
             artwork_part = r["title"].split(" — ")[0]
             for frag in re.split(r"[（）()《》]", artwork_part):
                 key = _classic_name_key(frag)
                 if len(key) >= 2:
                     names.add(key)
-    return {"urls": urls, "names": names, "threads": threads}
+    display.sort(key=lambda x: x[1], reverse=True)
+    return {"urls": urls, "names": names, "threads": threads, "display": display}
 
 
 def _classic_wiki_url(title: str) -> str:
@@ -726,8 +734,9 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
     比对无提示词成本，窗口放长到半年级；两栏目合并）× 四条规则顺序比对——①作品名归一键
     ②thread_key ③原始 wiki URL ④重定向解析后的规范 wiki URL（_wiki_resolve，
     堵"换条目名/别名提同一作品"的漏判）。命中即退回重提（retry_block 括注原因），
-    窗口外允许再登。提名模板不再维护已鉴赏清单——清单是建议不是约束，Fallingwater
-    五连登证明约束必须在代码层。
+    窗口外允许再登。清单与规则双层分工（2026-09-03 定稿）：**清单=导流层**（与
+    身份集同源同窗含重置语义，喂给模板省掉盲提撞窗的试错调用）、**规则=保证层**
+    （Fallingwater 五连登证明约束必须在代码层——清单只省 token 不当约束用）。
 
     幂等：本期该板块已有 classic- 选题即跳过；背调照常补作品来历与细节
     （艺术板块=纯背景故事模式），材料薄时自动触发联网调查。"""
@@ -738,6 +747,10 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
     ident = _classic_recent_identity(conn, issue_date, conf.classic_dedupe_days,
                                      conf.classic_reset_dates)
     dup_msg = f"（近 {conf.classic_dedupe_days} 天内已鉴赏过，含另一栏目）"
+    # 清单回归（2026-09-03，用户定）：与规则同源同窗（含重置语义）的展示清单喂给
+    # 主编做导流——省掉盲提撞窗的试错调用；规则仍是唯一保证层，清单只是省 token
+    done_block = "\n".join(f"- {t}（{d}）" for t, d in ident["display"]) \
+        or "（滑窗内无已鉴赏作品）"
 
     rejected: list[str] = []
     with make_client() as client:
@@ -750,7 +763,7 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
                                + "、".join(rejected))
             prompt = render_prompt(
                 template, day_rule=day_rule or _classic_day_rule(issue_date),
-                retry_block=retry_block)
+                done_block=done_block, retry_block=retry_block)
             result = complete_json(backend, prompt, role="classic")
             artwork = str(result.get("artwork") or "").strip()
             artist = str(result.get("artist") or "").strip()

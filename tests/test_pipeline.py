@@ -988,6 +988,7 @@ class TestClassicColumn:
             day_rule=stages._classic_design_day_rule("2026-08-11"),
             stat_key="classic_design")
         assert "潘顿椅" in s2["classic_design"]
+        assert "流水别墅 — A（1935）" in backend2.prompts[0]   # 导流清单跨栏目可见
         assert "天内已鉴赏过" in backend2.prompts[1]            # 退回原因进重试提示
         assert backend2.prompts[4].count("已鉴赏过") >= 1       # 四次退回都在括注里
         assert conn.execute(
@@ -1031,14 +1032,16 @@ class TestClassicColumn:
         # 艺术版系列重置于 09-03：09-04 重提流水别墅放行（art 历史清零）……
         reset = dataclasses.replace(self._conf(),
                                     classic_reset_dates={"art": "2026-09-03"})
-        s = stages._nominate_classic(conn, reset, _FakeBackend(
-            nom("流水别墅", "Fallingwater")), "art", "2026-09-04")
+        backend_fw = _FakeBackend(nom("流水别墅", "Fallingwater"))
+        s = stages._nominate_classic(conn, reset, backend_fw, "art", "2026-09-04")
         assert "流水别墅" in s["classic"]
+        assert "流水别墅" not in backend_fw.prompts[0]   # 重置后清单也不再展示它
         # ……但设计版历史（潘顿椅）不在重置范围，艺术版（次日）重提仍被退回
         backend = _FakeBackend(nom("潘顿椅", "Panton Chair"),
                                nom("吻", "The Kiss (Klimt)"))
         s2 = stages._nominate_classic(conn, reset, backend, "art", "2026-09-05")
         assert "吻" in s2["classic"]
+        assert "潘顿椅 — A（1935）" in backend.prompts[0]  # 设计版历史仍在清单里
         assert "天内已鉴赏过" in backend.prompts[1]   # 潘顿椅被设计版历史挡下
 
     def test_stage_editor_runs_classic_even_when_regular_skips(self, tmp_path,
