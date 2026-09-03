@@ -109,6 +109,7 @@ class AppConfig:
     classic_design_board: str
     classic_paper_board: str
     classic_dedupe_days: int
+    classic_reset_dates: dict
 
     @property
     def db_path(self) -> Path:
@@ -164,6 +165,8 @@ def load_config() -> AppConfig:
         classic_design_board=str(publish.get("classic_design_board", "")),
         classic_paper_board=str(publish.get("classic_paper_board", "")),
         classic_dedupe_days=int(publish.get("classic_dedupe_days", 180)),
+        classic_reset_dates={str(k): str(v) for k, v in
+                             dict(publish.get("classic_reset_dates", {})).items()},
     )
 
 

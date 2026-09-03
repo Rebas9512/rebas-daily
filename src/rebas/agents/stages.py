@@ -650,9 +650,15 @@ def _classic_name_key(s: str) -> str:
     return _CLASSIC_NAME_STRIP_RE.sub("", s or "").lower()
 
 
-def _classic_recent_identity(conn, issue_date: str, days: int) -> dict:
+def _classic_recent_identity(conn, issue_date: str, days: int,
+                             reset_dates: dict | None = None) -> dict:
     """近 days 天（conf.classic_dedupe_days）两鉴赏栏目登刊作品的身份集
     （防重复规则的比对基准）。
+
+    reset_dates（conf.classic_reset_dates，{board: date}）=栏目系列重置：该板块
+    早于重置日的栏目选题不计入身份集——已鉴赏历史"清零"、允许重做旧选题（2026-09-03
+    艺术版首用：新故事化写法重做旧内容）。按 topic 的 board 判定，所以另一栏目
+    引用过同一作品的近期选题（设计版的流水别墅）不受重置影响照常挡。
 
     以 topics 为准（登过刊才算）、跨栏目合并、无上界日期（同日跨栏目：艺术批次
     先于设计批次跑，当期艺术提名也要挡）——2026-08 Fallingwater 实况教训：旧清单
@@ -665,12 +671,15 @@ def _classic_recent_identity(conn, issue_date: str, days: int) -> dict:
     urls: set[str] = set()
     names: set[str] = set()
     threads: set[str] = set()
+    reset_dates = reset_dates or {}
     date_rows = conn.execute(
-        "SELECT thread_key, item_ids FROM topics"
+        "SELECT board, issue_date, thread_key, item_ids FROM topics"
         " WHERE thread_key LIKE 'classic-%' AND issue_date >= date(?, ?)",
         (issue_date, f"-{days} day")).fetchall()
     iids: set[int] = set()
     for t in date_rows:
+        if t["issue_date"] < reset_dates.get(t["board"], ""):
+            continue               # 重置日前的本板块栏目历史不计入
         threads.add(t["thread_key"])
         try:
             iids.update(i for i in json.loads(t["item_ids"] or "[]")
@@ -726,7 +735,8 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
             "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
             " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
         return {stat_key: "已有栏目选题"}
-    ident = _classic_recent_identity(conn, issue_date, conf.classic_dedupe_days)
+    ident = _classic_recent_identity(conn, issue_date, conf.classic_dedupe_days,
+                                     conf.classic_reset_dates)
     dup_msg = f"（近 {conf.classic_dedupe_days} 天内已鉴赏过，含另一栏目）"
 
     rejected: list[str] = []

@@ -942,13 +942,16 @@ class TestClassicColumn:
         assert conn.execute("SELECT count(*) FROM raw_items").fetchone()[0] == 0
 
     def test_dedupe_window_cross_column(self, tmp_path, monkeypatch):
-        """30 天防重复（2026-09-02，Fallingwater 实况复盘）：清单跨栏目合并可见、
-        URL 闸门把重提退回重试、窗口外同一作品放行再登。"""
+        """滑窗防重复（2026-09-02，Fallingwater 实况复盘）：四条规则各接一手、
+        窗口外同一作品放行再登。（清空 reset_dates——生产配置里的艺术版系列重置
+        会豁免这些老日期，测试要的是无重置的基线行为。）"""
+        import dataclasses
         import json
 
         from rebas.agents import stages
 
         conn = self._conn(tmp_path)
+        conf = dataclasses.replace(self._conf(), classic_reset_dates={})
         # 规范名解析桩：别名/重定向条目名 → 规范名（真实 API 是 redirects=1）
         redirects = {"Fallingwater (Kaufmann Residence)": "Fallingwater"}
         monkeypatch.setattr(
@@ -965,7 +968,7 @@ class TestClassicColumn:
 
         # 艺术版先鉴赏流水别墅
         backend = _FakeBackend(nom("流水别墅", "Fallingwater"))
-        s = stages._nominate_classic(conn, self._conf(), backend, "art", "2026-08-08")
+        s = stages._nominate_classic(conn, conf, backend, "art", "2026-08-08")
         assert "流水别墅" in s["classic"]
 
         # 三天后设计版（建筑日）重提同一作品的四种姿势，每条规则各接一手：
@@ -980,7 +983,7 @@ class TestClassicColumn:
                 thread="classic-kaufmann-house"),
             nom("潘顿椅", "Panton Chair"))
         s2 = stages._nominate_classic(
-            conn, self._conf(), backend2, "design", "2026-08-11",
+            conn, conf, backend2, "design", "2026-08-11",
             source_id="classic-design", template="editor_classic_design",
             day_rule=stages._classic_design_day_rule("2026-08-11"),
             stat_key="classic_design")
@@ -993,9 +996,50 @@ class TestClassicColumn:
 
         # 窗口外（classic_dedupe_days=180，约 7 个月后）：规则放行，同一作品允许再登
         backend3 = _FakeBackend(nom("流水别墅", "Fallingwater"))
-        s3 = stages._nominate_classic(conn, self._conf(), backend3, "art",
+        s3 = stages._nominate_classic(conn, conf, backend3, "art",
                                       "2027-03-15")
         assert "流水别墅" in s3["classic"]
+
+    def test_reset_dates_clears_column_history(self, tmp_path, monkeypatch):
+        """系列重置（2026-09-03）：重置日前的本板块栏目历史不再挡重提（新写法可
+        重做旧选题）；另一板块的栏目历史不受影响照常挡。"""
+        import dataclasses
+        import json
+
+        from rebas.agents import stages
+
+        conn = self._conn(tmp_path)
+        monkeypatch.setattr(stages, "_wiki_resolve",
+                            lambda c, t: (t, "https://upload.wikimedia.org/x.jpg"))
+        monkeypatch.setattr(stages, "_validate_classic_image", lambda c, u: True)
+
+        def nom(name, wiki):
+            return json.dumps({"artwork": name, "artist": "A", "year": "1935",
+                               "title": name, "wiki_title": wiki, "image_url": "",
+                               "reason": "r", "thread_key": f"classic-{wiki}"},
+                              ensure_ascii=False)
+
+        base = dataclasses.replace(self._conf(), classic_reset_dates={})
+        # 历史：艺术版 08-08 流水别墅，设计版 08-11 潘顿椅
+        stages._nominate_classic(conn, base, _FakeBackend(
+            nom("流水别墅", "Fallingwater")), "art", "2026-08-08")
+        stages._nominate_classic(
+            conn, base, _FakeBackend(nom("潘顿椅", "Panton Chair")),
+            "design", "2026-08-11", source_id="classic-design",
+            template="editor_classic_design", stat_key="classic_design")
+
+        # 艺术版系列重置于 09-03：09-04 重提流水别墅放行（art 历史清零）……
+        reset = dataclasses.replace(self._conf(),
+                                    classic_reset_dates={"art": "2026-09-03"})
+        s = stages._nominate_classic(conn, reset, _FakeBackend(
+            nom("流水别墅", "Fallingwater")), "art", "2026-09-04")
+        assert "流水别墅" in s["classic"]
+        # ……但设计版历史（潘顿椅）不在重置范围，艺术版（次日）重提仍被退回
+        backend = _FakeBackend(nom("潘顿椅", "Panton Chair"),
+                               nom("吻", "The Kiss (Klimt)"))
+        s2 = stages._nominate_classic(conn, reset, backend, "art", "2026-09-05")
+        assert "吻" in s2["classic"]
+        assert "天内已鉴赏过" in backend.prompts[1]   # 潘顿椅被设计版历史挡下
 
     def test_stage_editor_runs_classic_even_when_regular_skips(self, tmp_path,
                                                                monkeypatch):
