@@ -1055,7 +1055,8 @@ def _review_backgrounds(conn, backend: LLMBackend, board: str, issue_date: str) 
     离题但精彩的留（取舍归撰稿人），又不相关又平淡的才删，**宁留勿删**——
     故事性是这条流水线的产出目标。
     审校只裁决不新增（新增内容又成了未核查的知识）；漏裁决的条目保守保留。
-    幂等：reviewed 标记；follow_up 出自本刊往期原文，不在审核范围。
+    幂等：reviewed 标记；follow_up 出自本刊往期原文，不在审核范围；odds（相关盘口）
+    同样豁免——快照行是刊内采集数据的逐字回填，无事实风险，相关性归撰稿人取舍。
     """
     pending = []
     for r in conn.execute(
@@ -1158,6 +1159,10 @@ ARCHIVE_INDEX_CAP = 200        # 索引条数上限（标题级）
 ARCHIVE_READ_CAP = 5           # 单次可索取全文的篇数上限
 ARCHIVE_BODY_CHARS = 3000
 FACTS_MARK = "【需调查补充】"   # 薄材料新闻选题在背调清单里的标注
+ODDS_MARK = "【可配盘口】"      # 可从盘口池挑相关盘当辅助信源的选题标注（2026-09-02）
+ODDS_POOL_FRESH_HOURS = 36     # 盘口快照的保鲜窗：超龄赔率比没有更糟
+ODDS_POOL_CAP = 24             # 注入提示词的盘口池行数上限（按 24h 交易量降序截取）
+PREDICTION_SOURCE_TYPES = ("polymarket_events", "kalshi_events")
 STORY_SOURCE_IDS = ("classic-art", "classic-design")  # 鉴赏两栏目；classic-paper 走论文精读线不在此列
 # story lane 的选题类型标注（2026-08-30）：两类选题检索取向差别大，在清单里点名
 STORY_CLASSIC_MARK = "【经典鉴赏】"
@@ -1199,6 +1204,47 @@ def _story_eligible(conf: AppConfig, topic_row, rows) -> bool:
     if any(r["source_id"] in STORY_SOURCE_IDS for r in rows):
         return True
     return topic_row["decision"] == "feature"
+
+
+def _odds_eligible(topic_row, rows) -> bool:
+    """相关盘口（2026-09-02）的资格：新闻/时效类选题（feature 与 brief 都算——
+    盘口只是一行辅助信源，速览也放得下）；论文与经典栏目题无盘口语义，排除。"""
+    if any(r["kind"] == "paper" for r in rows):
+        return False
+    return not any(r["source_id"] in CLASSIC_SOURCE_IDS for r in rows)
+
+
+def _odds_pool(conn, conf: AppConfig) -> list[dict]:
+    """盘口快照池：预测市场源（Polymarket/Kalshi）在库的新鲜条目。
+
+    facts lane 从中为新闻选题挑"相关盘口"当辅助信源——agent 只做选择与一句关联，
+    快照行（summary，自带截至时间戳与赔率）由代码逐字回填进 background，LLM 不
+    转录数字。池按 24h 交易量降序截 ODDS_POOL_CAP；REFRESH_SUMMARY 机制保证
+    summary 是最近一次 merge 时的新盘口，再用保鲜窗挡住停更源的陈旧快照。"""
+    pm_ids = [s.id for s in load_sources() if s.type in PREDICTION_SOURCE_TYPES]
+    if not pm_ids:
+        return []
+    cutoff = (datetime.now(timezone.utc)
+              - timedelta(hours=ODDS_POOL_FRESH_HOURS)).isoformat(timespec="seconds")
+    rows = conn.execute(
+        f"SELECT id, source_id, title, summary, url, signals FROM raw_items"
+        f" WHERE source_id IN ({','.join('?' * len(pm_ids))})"
+        f" AND COALESCE(last_seen_at, fetched_at) >= ?", (*pm_ids, cutoff)).fetchall()
+    pool = []
+    for r in rows:
+        sig = json.loads(r["signals"] or "{}")
+        pool.append({
+            "platform": "Kalshi" if r["source_id"].startswith("kalshi") else "Polymarket",
+            "title": r["title"], "line": r["summary"] or "", "url": r["url"],
+            "vol": sig.get("pm_vol24_k") or 0,
+        })
+    pool.sort(key=lambda p: p["vol"], reverse=True)
+    return pool[:ODDS_POOL_CAP]
+
+
+def _odds_block(pool: list[dict]) -> str:
+    return "\n".join(f"[P{n}]（{p['platform']}）{p['title']} ｜ {p['line']}"
+                     for n, p in enumerate(pool, 1))
 
 
 def _research_excerpts(rows) -> str:
@@ -1292,6 +1338,10 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
       检索期刊新闻稿/出版方页面/媒体报道；research_facts_max=0 整体关闭；
     - 故事素材（2026-08-30）：经典鉴赏题恒查、新闻专题也查（见 _story_eligible），
       research_stories_max=0 时整条 lane 不跑；
+    - 相关盘口（2026-09-02，facts lane 内）：新闻/时效类选题（_odds_eligible）可从
+      盘口快照池（_odds_pool，Polymarket/Kalshi 近 36h 条目）挑相关盘当辅助信源
+      ——agent 只回池内编号+一句关联，快照行由代码逐字回填，不过背景审核；
+      research_odds_max=0 或板块不在 research_odds_boards 时整体关闭；
     - 落库在两条 lane 都返回之后统一做——任一调用抛错即该板块 background 全未写，
       板块级重跑两条 lane 都重来，幂等语义与单 lane 时代一致；
     - 幂等：background 非 NULL 或已有报道的选题跳过；空产物也落库标记已处理。
@@ -1305,9 +1355,13 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
     if not topics:
         return {"skipped": "无待调查选题"}
 
+    odds_pool = (_odds_pool(conn, conf)
+                 if conf.research_odds_max > 0 and board in conf.research_odds_boards
+                 else [])
     rows_by_id = {t["id"]: _topic_items(conn, t) for t in topics}
     investigate: set[int] = set()
     story: set[int] = set()
+    odds_ok: set[int] = set()
     blocks = []
     for t in topics:
         rows = rows_by_id[t["id"]]
@@ -1315,17 +1369,23 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
             investigate.add(t["id"])
         if _story_eligible(conf, t, rows):
             story.add(t["id"])
-        mark = FACTS_MARK if t["id"] in investigate else ""
+        if odds_pool and _odds_eligible(t, rows):
+            odds_ok.add(t["id"])
+        mark = ((FACTS_MARK if t["id"] in investigate else "")
+                + (ODDS_MARK if t["id"] in odds_ok else ""))
         blocks.append(f"[T{t['id']}] {t['title']}{mark}\n"
                       f"入选理由: {t['reason'] or '（无）'}\n材料节选:\n"
                       f"{_research_excerpts(rows)}")
     topics_block = "\n\n".join(blocks)
     archive = _archive_index(conn, board, issue_date)
+    odds_block = (_odds_block(odds_pool) if odds_pool
+                  else "（本期无盘口快照——odds 一律给空列表）")
 
     prompt = render_prompt(
         "researcher", board_name=board_name, reader_block=reader_block(profile),
         archive_days=ARCHIVE_DAYS, archive_block=_archive_block(archive),
-        facts_max=conf.research_facts_max, topics_block=topics_block)
+        facts_max=conf.research_facts_max, topics_block=topics_block,
+        odds_block=odds_block, odds_max=conf.research_odds_max)
     result = complete_json(backend, prompt, role="researcher")
 
     # 第二轮：agent 索取往期全文（只认索引里出现过的 id，封顶 ARCHIVE_READ_CAP）
@@ -1346,7 +1406,8 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
         prompt2 = render_prompt(
             "researcher_articles", board_name=board_name,
             reader_block=reader_block(profile), archive_articles_block=articles_block,
-            facts_max=conf.research_facts_max, topics_block=topics_block)
+            facts_max=conf.research_facts_max, topics_block=topics_block,
+            odds_block=odds_block, odds_max=conf.research_odds_max)
         result = complete_json(backend, prompt2, role="researcher")
 
     # story lane：只把有资格的选题送进清单（无资格的题连提都不提，省 token 也省误伤）
@@ -1371,8 +1432,33 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
             topics_block="\n\n".join(story_blocks)), role="researcher")
         stories_by_id = _parse_stories(story_result, conf.research_stories_max)
 
+    # 相关盘口：agent 只回 {p: 池内编号, note: 一句关联}，快照行由代码从池里
+    # 逐字回填（LLM 不转录数字，抄错盘口这个风险在结构上不存在）；不过背景审核
+    # ——数据是刊内采集的快照原文，唯一余下的风险"相关性"由撰稿人取舍
+    odds_by_id: dict = {}
+    if odds_ok:
+        for entry in result.get("topics", []):
+            if not isinstance(entry, dict):
+                continue
+            picks, seen = [], set()
+            for o in entry.get("odds") or []:
+                if not isinstance(o, dict):
+                    continue
+                try:
+                    ref = int(o.get("p"))
+                except (TypeError, ValueError):
+                    continue
+                if ref in seen or not 1 <= ref <= len(odds_pool):
+                    continue
+                seen.add(ref)
+                p = odds_pool[ref - 1]
+                picks.append({"market": p["title"], "line": p["line"],
+                              "url": p["url"], "source": p["platform"],
+                              "note": str(o.get("note") or "").strip()})
+            odds_by_id[entry.get("id")] = picks[:conf.research_odds_max]
+
     by_id = _parse_research(result, conf.research_facts_max)
-    with_bg = with_facts = with_stories = 0
+    with_bg = with_facts = with_stories = with_odds = 0
     for t in topics:  # 未覆盖的选题也落空产物，幂等守卫才认账
         bg = by_id.get(t["id"], {"context": "", "concepts": [], "facts": [],
                                  "follow_up": ""})
@@ -1384,8 +1470,12 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
             bg["stories"] = stories_by_id.get(t["id"], [])
             if bg["stories"]:
                 with_stories += 1
+        if t["id"] in odds_ok:     # 未标注的选题不吃 odds——同 facts 的代码层兜底
+            bg["odds"] = odds_by_id.get(t["id"], [])
+            if bg["odds"]:
+                with_odds += 1
         if (bg["context"] or bg["concepts"] or bg["facts"] or bg["follow_up"]
-                or bg.get("stories")):
+                or bg.get("stories") or bg.get("odds")):
             with_bg += 1
         conn.execute("UPDATE topics SET background=? WHERE id=?",
                      (json.dumps(bg, ensure_ascii=False), t["id"]))
@@ -1393,6 +1483,7 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
     return {"researched": len(topics), "with_background": with_bg,
             "investigated": len(investigate), "with_facts": with_facts,
             "story_topics": len(story), "with_stories": with_stories,
+            "odds_topics": len(odds_ok), "with_odds": with_odds,
             "archive_read": read}
 
 

@@ -47,6 +47,7 @@ SETTING_BOUNDS = {
     "refill_min_topics": (0, 12),
     "research_facts_max": (0, 10),
     "research_stories_max": (0, 10),
+    "research_odds_max": (0, 6),
 }
 
 

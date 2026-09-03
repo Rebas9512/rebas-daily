@@ -77,6 +77,18 @@ def background_block(background_json: str | None) -> str:
                      "事实类素材首次引用按来源归因。")
         for s in bg["stories"]:
             lines.append(f"- {s.get('story')}（来源：{s.get('source') or '公开报道'}）")
+    if bg.get("odds"):
+        # 相关盘口（2026-09-02）：快照行是采集层原文（自带截至时间），辅助信源——
+        # 用不用归撰稿人，措辞同故事素材的"可选用"口径
+        lines.append("相关盘口（编辑部从预测市场快照池挑的与本题相关的实时赔率，"
+                     "辅助信源）：**可选用，不相关或不顺手就略过**——引用时按"
+                     "「Polymarket/Kalshi 盘口显示」口径归因，带快照行里的截至时间；"
+                     "赔率是市场押注的群体预测不是事实结论，数字以快照行为准，"
+                     "禁止外推或改写：")
+        for o in bg["odds"]:
+            note = f"；与本题：{o['note']}" if o.get("note") else ""
+            lines.append(f"- 【{o.get('source')}】{o.get('market')} ｜ "
+                         f"{o.get('line')}{note}")
     return "\n".join(lines) or "（无背景材料）"
 
 

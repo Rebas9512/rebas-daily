@@ -31,6 +31,14 @@ weight = 3                  # 2026-08-27 奖项信号层：gnews-clark-medal/loe
                             # (10月，走媒体源)是硬新闻；得主生日/讲座类散提不在此列
 keywords = ["Nobel", "Clark Medal", "Loeb Awards", "laureate", "economist"]
 
+[[interest]]
+name = "预测市场热门盘口"
+weight = 4                  # 2026-09-02 盘口线改法：polymarket-hot 全站流不限领域——大选/
+                            # 地缘/宏观/科技与 AI 的重大押注盘只要有新闻价值都算（赔率=真金
+                            # 押注的群体预测）；体育赛果/币价/刷量盘已在采集层黑名单，漏网的
+                            # 请压低分。盘口剧烈异动（pm_move_pp）优先于绝对热度
+keywords = ["Polymarket", "Kalshi", "odds", "election", "geopolitics", "Fed"]
+
 [low_priority]
 keywords = []
 

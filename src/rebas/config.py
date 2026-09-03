@@ -102,6 +102,8 @@ class AppConfig:
     refill_min_topics: int
     research_facts_max: int
     research_stories_max: int
+    research_odds_max: int
+    research_odds_boards: tuple[str, ...]
     image_review_boards: tuple[str, ...]
     classic_board: str
     classic_design_board: str
@@ -152,6 +154,9 @@ def load_config() -> AppConfig:
         refill_min_topics=int(publish.get("refill_min_topics", 6)),
         research_facts_max=int(publish.get("research_facts_max", 0)),
         research_stories_max=int(publish.get("research_stories_max", 0)),
+        research_odds_max=int(publish.get("research_odds_max", 0)),
+        research_odds_boards=tuple(publish.get("research_odds_boards",
+                                               ["finance", "tech", "quant"])),
         image_review_boards=tuple(publish.get("image_review_boards",
                                               ["art", "design"])),
         classic_board=str(publish.get("classic_board", "")),

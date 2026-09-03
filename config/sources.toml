@@ -737,6 +737,19 @@ enabled = true
 # 一源一系列同 openalex_journal 先例）。
 
 [[source]]
+id = "polymarket-hot"
+board = "finance"
+name = "Polymarket 热点盘 · 全站"
+type = "polymarket_events"
+endpoint = "https://gamma-api.polymarket.com/events?limit=60&order=volume24hr&ascending=false&closed=false"
+content = "headline"
+fetch_interval_hours = 6
+enabled = true              # 2026-09-02 盘口线改法（用户定）：不按领域盯盘，全站 24h 交易量
+                            # 榜通吃，刊物相关性交给粗筛。top-60 实测约 2/3 被 tag 黑名单挡掉
+                            # （体育/币价/推数），余 ~20 条=选举/地缘/Fed/AI 发布盘等硬货；
+                            # 同时供背调"相关盘口"快照池（research_odds_max）
+
+[[source]]
 id = "polymarket-politics"
 board = "finance"
 name = "Polymarket 热点盘 · 政治/地缘"
@@ -744,7 +757,8 @@ type = "polymarket_events"
 endpoint = "https://gamma-api.polymarket.com/events?limit=20&order=volume24hr&ascending=false&closed=false&tag_slug=politics"
 content = "headline"
 fetch_interval_hours = 6
-enabled = true
+enabled = false             # 2026-09-02 被 polymarket-hot 全站流取代（热门政治盘必在全站
+                            # 榜内）；条目按 url_canonical 跨源合并，pm_prob 异动基线连续
 
 [[source]]
 id = "polymarket-economy"
@@ -754,7 +768,9 @@ type = "polymarket_events"
 endpoint = "https://gamma-api.polymarket.com/events?limit=20&order=volume24hr&ascending=false&closed=false&tag_slug=economy"
 content = "headline"
 fetch_interval_hours = 6
-enabled = true
+enabled = false             # 2026-09-02 被 polymarket-hot 全站流取代（同上）；economy tag 的
+                            # 长尾薄盘本就极少成题，核心宏观盘（Fed/CPI）另有 Kalshi 定点系列
+                            # 双平台印证，覆盖不降级
 
 [[source]]
 id = "kalshi-fed"

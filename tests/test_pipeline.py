@@ -35,17 +35,24 @@ class TestPromptTemplates:
         researcher = render_prompt("researcher", board_name=p.name,
                                    reader_block=reader_block(p), archive_days=30,
                                    archive_block="（30 天内无往期报道）",
-                                   facts_max=6, topics_block="[T1] ...")
+                                   facts_max=6, topics_block="[T1] ...",
+                                   odds_block="[P1]（Polymarket）Fed 决议 ｜ 快照",
+                                   odds_max=2)
         assert "教科书级" in researcher and "宁缺毋滥" in researcher
         assert "AI/ML 从业者" in researcher   # 读者画像注入
         assert "need_articles" in researcher  # 往期全文索取协议
         assert "网络搜索工具" in researcher and "最多 6 条" in researcher  # 新闻调查补充
+        assert "【可配盘口】" in researcher and "[P1]" in researcher  # 盘口池协议
+        assert "最多 2 个" in researcher and '"odds"' in researcher
         r2 = render_prompt("researcher_articles", board_name=p.name,
                            reader_block=reader_block(p),
                            archive_articles_block="[A1] ...",
-                           facts_max=6, topics_block="[T1] ...")
+                           facts_max=6, topics_block="[T1] ...",
+                           odds_block="（本期无盘口快照——odds 一律给空列表）",
+                           odds_max=2)
         assert "follow_up" in r2 and "往期报道全文" in r2
         assert "需调查补充" in r2             # 第二轮同样带调查补充协议
+        assert "可配盘口" in r2 and '"odds"' in r2  # 第二轮同样带盘口协议
         story = render_prompt("researcher_story", board_name=p.name,
                               reader_block=reader_block(p), stories_max=6,
                               topics_block="[T1] 【经典鉴赏】...")
@@ -139,6 +146,18 @@ class TestPromptTemplates:
         assert "故事素材" in block3 and "不必全用" in block3
         assert "不得写成坐实" in block3
         assert "- 传说画作在大火里被抢出……（来源：普拉多官网）" in block3
+        # 相关盘口（2026-09-02）：单独成节，可选用 + 归因口径 + 数字以快照为准
+        raw4 = ('{"context":"","concepts":[],"odds":['
+                '{"market":"Fed Decision in September?",'
+                '"line":"预测市场盘口（截至 09-02 18:00 UTC）：维持 66%",'
+                '"url":"https://polymarket.com/event/fed","source":"Polymarket",'
+                '"note":"市场对本次决议的押注"}]}')
+        block4 = background_block(raw4)
+        assert "相关盘口" in block4 and "可选用" in block4
+        assert "盘口显示」口径归因" in block4 and "禁止外推" in block4
+        assert ("- 【Polymarket】Fed Decision in September? ｜ "
+                "预测市场盘口（截至 09-02 18:00 UTC）：维持 66%"
+                "；与本题：市场对本次决议的押注") in block4
 
 
 def test_thread_key_normalize():
@@ -263,7 +282,7 @@ def test_stage_research(tmp_path):
     # t1 是专题 → 进 story lane（t2 速览不进）
     assert stats == {"researched": 2, "with_background": 1, "archive_read": 0,
                      "investigated": 2, "story_topics": 1, "with_stories": 0,
-                     "with_facts": 0}
+                     "with_facts": 0, "odds_topics": 0, "with_odds": 0}
     assert "夏普论文" in backend.prompts[0]           # 材料节选入提示词
     assert "金融概念要铺垫" in backend.prompts[0]     # 读者画像入提示词
     assert "30 天内无往期报道" in backend.prompts[0]  # 空书架如实呈现
@@ -328,12 +347,83 @@ def test_stage_research_archive_followup(tmp_path):
                            "量化", "2026-07-05")
     assert stats == {"researched": 1, "with_background": 1, "archive_read": 1,
                      "investigated": 1, "story_topics": 0, "with_stories": 0,
-                     "with_facts": 0}
+                     "with_facts": 0, "odds_topics": 0, "with_odds": 0}
     assert f"[A{past}]" in backend.prompts[0]      # 第一轮见标题索引
     assert "上期正文细节" in backend.prompts[1]    # 第二轮见全文
     bg = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
                                  (cur,)).fetchone()[0])
     assert bg["follow_up"] == "上期讲了 X，这期新在 Y"
+
+
+def test_stage_research_odds(tmp_path):
+    """相关盘口（2026-09-02）：池行注入提示词、快照逐字回填、重复/幽灵编号丢弃、
+    论文题不标注不吃 odds（代码层兜底）。"""
+    import json
+    from datetime import datetime, timezone
+
+    from rebas import db as database
+    from rebas.agents.stages import stage_research
+    from rebas.config import load_config
+
+    conn = database.init_db(tmp_path / "t.sqlite")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    snap = "预测市场盘口（截至 09-02 18:00 UTC）：维持 66%；24h 交易 $2815k"
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at, signals) VALUES ('polymarket-hot','finance',"
+        " 'https://polymarket.com/event/fed','https://polymarket.com/event/fed',"
+        " 'Fed Decision in September?', ?, ?, ?)",
+        (snap, now, json.dumps({"pm_vol24_k": 2815, "pm_prob": 66})))
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at) VALUES ('s','finance','u1','u1','就业数据爆冷','摘要', ?)", (now,))
+    news_iid = conn.execute("SELECT id FROM raw_items WHERE url='u1'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO raw_items (source_id, board, url, url_canonical, title, summary,"
+        " fetched_at, kind) VALUES ('s','finance','u2','u2','某论文','摘要', ?,"
+        " 'paper')", (now,))
+    paper_iid = conn.execute("SELECT id FROM raw_items WHERE url='u2'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " created_at, reason) VALUES ('2026-01-01','finance','就业新闻','k1',?,"
+        " 'brief','x','r')", (json.dumps([news_iid]),))
+    t_news = conn.execute("SELECT id FROM topics WHERE thread_key='k1'").fetchone()["id"]
+    conn.execute(
+        "INSERT INTO topics (issue_date, board, title, thread_key, item_ids, decision,"
+        " created_at, reason) VALUES ('2026-01-01','finance','论文题','k2',?,"
+        " 'feature','x','r')", (json.dumps([paper_iid]),))
+    t_paper = conn.execute("SELECT id FROM topics WHERE thread_key='k2'").fetchone()["id"]
+    conn.commit()
+
+    profile = Profile(board="finance", name="商业", interests=(),
+                      reader_assumed="看财经新闻", reader_explain="宏观机制要铺垫")
+    backend = _FakeBackend(json.dumps({"topics": [
+        {"id": t_news, "context": "", "concepts": [],
+         "odds": [{"p": 1, "note": "市场对本次决议的押注"},
+                  {"p": 1, "note": "重复编号丢弃"},
+                  {"p": 99, "note": "幽灵编号丢弃"}]},
+        {"id": t_paper, "context": "", "concepts": [],
+         "odds": [{"p": 1, "note": "论文题不该吃盘口"}]},
+    ]}, ensure_ascii=False))
+    stats = stage_research(conn, load_config(), backend, "finance", profile,
+                           "商业", "2026-01-01")
+    assert stats["odds_topics"] == 1 and stats["with_odds"] == 1
+
+    assert "[P1]（Polymarket）Fed Decision in September? ｜ " + snap \
+        in backend.prompts[0]                             # 池行原样入提示词
+    # 新闻题双标注连排（薄材料+可配盘口）；论文题薄材料标注有、盘口标注无
+    assert "就业新闻【需调查补充】【可配盘口】" in backend.prompts[0]
+    assert "论文题【需调查补充】\n" in backend.prompts[0]
+
+    bg_news = json.loads(conn.execute(
+        "SELECT background FROM topics WHERE id=?", (t_news,)).fetchone()[0])
+    assert bg_news["odds"] == [{
+        "market": "Fed Decision in September?", "line": snap,
+        "url": "https://polymarket.com/event/fed", "source": "Polymarket",
+        "note": "市场对本次决议的押注"}]                  # 快照逐字回填，重复/幽灵全丢
+    bg_paper = json.loads(conn.execute(
+        "SELECT background FROM topics WHERE id=?", (t_paper,)).fetchone()[0])
+    assert "odds" not in bg_paper                         # 未标注不吃 odds
 
 
 def test_checker_background_review(tmp_path):
