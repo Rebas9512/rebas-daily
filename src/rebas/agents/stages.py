@@ -566,10 +566,10 @@ CLASSIC_ATTEMPTS = 5             # 提名重试上限：每次退回（30 天内
                                  # 2026-09-02 二轮用户定），撞窗概率升高，上限给足
 # 栏目合成条目的虚拟源（不是采集候选）：force-stage 回拨/重置时不放回正常选题流
 CLASSIC_SOURCE_IDS = ("classic-art", "classic-design", "classic-paper")
-CLASSIC_DONE_DAYS = 30           # 防重复滑动窗口（2026-09-02 用户定）：窗口内规则硬挡，
-                                 # 更早的允许再登（栏目日更，全量防重不可持续）
 CLASSIC_GALLERY_SOURCE_IDS = ("classic-art", "classic-design")  # 鉴赏两栏目共享作品池：
                                  # 建筑/标志性设计物两边都可能提名，防重复跨栏目合并计算
+# 防重复滑窗天数走配置 classic_dedupe_days（2026-09-02 配置化：纯规则比对无提示词
+# 成本，窗口可放长；admin 可调）——窗口内规则硬挡，更早允许再登
 CLASSIC_IMG_MIN_BYTES = 10_000   # 名作配图最低体量（过滤图标/占位图）
 CLASSIC_TARGET_LENGTH = 1800    # 导览员语域要展开讲艺术史与文化脉络（2026-08-05）
 _WEEKDAY_CN = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -650,8 +650,9 @@ def _classic_name_key(s: str) -> str:
     return _CLASSIC_NAME_STRIP_RE.sub("", s or "").lower()
 
 
-def _classic_recent_identity(conn, issue_date: str) -> dict:
-    """近 CLASSIC_DONE_DAYS 天两鉴赏栏目登刊作品的身份集（防重复规则的比对基准）。
+def _classic_recent_identity(conn, issue_date: str, days: int) -> dict:
+    """近 days 天（conf.classic_dedupe_days）两鉴赏栏目登刊作品的身份集
+    （防重复规则的比对基准）。
 
     以 topics 为准（登过刊才算）、跨栏目合并、无上界日期（同日跨栏目：艺术批次
     先于设计批次跑，当期艺术提名也要挡）——2026-08 Fallingwater 实况教训：旧清单
@@ -667,7 +668,7 @@ def _classic_recent_identity(conn, issue_date: str) -> dict:
     date_rows = conn.execute(
         "SELECT thread_key, item_ids FROM topics"
         " WHERE thread_key LIKE 'classic-%' AND issue_date >= date(?, ?)",
-        (issue_date, f"-{CLASSIC_DONE_DAYS} day")).fetchall()
+        (issue_date, f"-{days} day")).fetchall()
     iids: set[int] = set()
     for t in date_rows:
         threads.add(t["thread_key"])
@@ -711,8 +712,9 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
     取材阶段自然抓正文当供稿材料、收页内图库；图直链进 image_urls 供撰写期审选）
     + feature 选题（thread_key 前缀 classic-，前端识别为栏目）。
 
-    防重复（2026-09-02 二轮，用户定：不喂清单，纯规则严格化）：30 天滑窗身份集
-    （_classic_recent_identity，两栏目合并）× 四条规则顺序比对——①作品名归一键
+    防重复（2026-09-02 二轮，用户定：不喂清单，纯规则严格化）：滑窗身份集
+    （_classic_recent_identity，窗长 conf.classic_dedupe_days 缺省 180 天——纯规则
+    比对无提示词成本，窗口放长到半年级；两栏目合并）× 四条规则顺序比对——①作品名归一键
     ②thread_key ③原始 wiki URL ④重定向解析后的规范 wiki URL（_wiki_resolve，
     堵"换条目名/别名提同一作品"的漏判）。命中即退回重提（retry_block 括注原因），
     窗口外允许再登。提名模板不再维护已鉴赏清单——清单是建议不是约束，Fallingwater
@@ -724,8 +726,8 @@ def _nominate_classic(conn, conf: AppConfig, backend: LLMBackend, board: str,
             "SELECT 1 FROM topics WHERE issue_date=? AND board=?"
             " AND thread_key LIKE 'classic-%'", (issue_date, board)).fetchone():
         return {stat_key: "已有栏目选题"}
-    ident = _classic_recent_identity(conn, issue_date)
-    dup_msg = f"（近 {CLASSIC_DONE_DAYS} 天内已鉴赏过，含另一栏目）"
+    ident = _classic_recent_identity(conn, issue_date, conf.classic_dedupe_days)
+    dup_msg = f"（近 {conf.classic_dedupe_days} 天内已鉴赏过，含另一栏目）"
 
     rejected: list[str] = []
     with make_client() as client:

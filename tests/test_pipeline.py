@@ -985,16 +985,16 @@ class TestClassicColumn:
             day_rule=stages._classic_design_day_rule("2026-08-11"),
             stat_key="classic_design")
         assert "潘顿椅" in s2["classic_design"]
-        assert "近 30 天内已鉴赏过" in backend2.prompts[1]      # 退回原因进重试提示
+        assert "天内已鉴赏过" in backend2.prompts[1]            # 退回原因进重试提示
         assert backend2.prompts[4].count("已鉴赏过") >= 1       # 四次退回都在括注里
         assert conn.execute(
             "SELECT count(*) FROM topics WHERE thread_key='classic-fallingwater'"
         ).fetchone()[0] == 1                                    # 始终没有第二次成题
 
-        # 窗口外（首鉴 53 天后）：规则放行，同一作品允许再登
+        # 窗口外（classic_dedupe_days=180，约 7 个月后）：规则放行，同一作品允许再登
         backend3 = _FakeBackend(nom("流水别墅", "Fallingwater"))
         s3 = stages._nominate_classic(conn, self._conf(), backend3, "art",
-                                      "2026-09-30")
+                                      "2027-03-15")
         assert "流水别墅" in s3["classic"]
 
     def test_stage_editor_runs_classic_even_when_regular_skips(self, tmp_path,
