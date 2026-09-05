@@ -56,7 +56,7 @@ rebas prune --days 7          # 手动瘦身（publish 尾部也会自动跑）
 2. VPS 一键就绪：`bash /opt/rebas_daily/scripts/vps_bootstrap.sh`（时区/Node 22/codex+wrangler/venv/冒烟/装 crontab，幂等）
 3. Cloudflare API Token（Pages:Edit）+ Account ID 追加进 `.secrets/.env`；跑 `bash scripts/cron_batch.sh 4` 验证全链路
 
-监控：healthchecks.io 建 5 个 check（`rebas-batch-1..5`，Period 1d / Grace 1h），crontab 设 `HEALTHCHECK_URL=https://hc-ping.com/<ping-key>/rebas-batch-`（末尾连字符；勿用单 check UUID 直拼——批号会被判成失败退出码）。rebas-batch-5 未建时 ping 404 被 `|| true` 吞掉，不影响批次本身。
+监控：healthchecks.io 建 4 个 check（`rebas-batch-1..4`，Period 1d / Grace 1h），crontab 设 `HEALTHCHECK_URL=https://hc-ping.com/<ping-key>/rebas-batch-`（末尾连字符；勿用单 check UUID 直拼——批号会被判成失败退出码）。批 5 是批 4 的兜底重试，脚本让它共用 `rebas-batch-4`：批 4 失败告警后批 5 兜底成功即把该 check 打回 UP，不需要第 5 个 check。
 
 ## 接 cron / 运维须知
 

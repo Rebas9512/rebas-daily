@@ -13,7 +13,9 @@
 # 可选环境变量:
 #   HEALTHCHECK_URL  healthchecks.io 死人开关前缀，成功后拼上批号 ping 对应 check。
 #                    形如 https://hc-ping.com/<ping-key>/rebas-batch-（末尾连字符），
-#                    对应 check 的 slug = rebas-batch-1 .. rebas-batch-5。
+#                    对应 check 的 slug = rebas-batch-1 .. rebas-batch-4（共 4 个）。
+#                    批 5 是批 4 的兜底重试，共用 rebas-batch-4：批 4 失败告警后批 5 兜底
+#                    成功即把它打回 UP（2026-09-05 对齐；此前打 rebas-batch-5 天天 404 被吞）。
 #                    注意不能用单 check 的 UUID 直拼——/1 会被判成失败退出码。
 #   DEPLOY_CMD       翻牌后执行的部署命令（如推 GitHub/Cloudflare Pages）
 #   REBAS_NPM        npm 路径（cron 精简 PATH 找不到 nvm 时用）
@@ -66,6 +68,7 @@ case "$BATCH" in
 esac
 
 if [ -n "${HEALTHCHECK_URL:-}" ]; then
-  curl -fsS -m 10 "${HEALTHCHECK_URL}${BATCH}" >/dev/null || true
+  PING_ID=$BATCH; [ "$BATCH" = 5 ] && PING_ID=4   # 批 5 共用批 4 的 check（见文件头）
+  curl -fsS -m 10 "${HEALTHCHECK_URL}${PING_ID}" >/dev/null || true
 fi
 echo "=== batch $BATCH done $(date '+%F %T %Z') ==="
