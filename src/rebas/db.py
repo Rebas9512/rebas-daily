@@ -180,7 +180,8 @@ _TREND_KEYS = {"hf_downloads": "hf_downloads_growth_pct",
                "hf_upvotes": "hf_upvotes_growth_pct"}
 # 绝对值变动键（2026-08-27 预测市场）：概率类信号看百分点差而非环比（30%→45% 是
 # +15pp 而不是 +50%）；同享基线新鲜度守卫
-_TREND_ABS_KEYS = {"pm_prob": "pm_move_pp"}
+# TabArena 的 Elo 同理走绝对值：1936→1960 是 +24 分，说成 +1.2% 没有意义
+_TREND_ABS_KEYS = {"pm_prob": "pm_move_pp", "ta_elo": "ta_elo_move"}
 
 
 def _apply_trend_signals(new_signals: dict, old: dict, incoming: dict,

@@ -1618,6 +1618,17 @@ fetch_interval_hours = 12
 enabled = true              # 可视化
 
 [[source]]
+id = "tabarena"
+board = "data"
+name = "TabArena 表格模型榜"
+type = "tabarena_leaderboard"
+endpoint = "https://huggingface.co/spaces/TabArena/leaderboard/raw/main/data/entrants_models/imputation_yes/splits_all/tasks_all/datasets_all/website_leaderboard.csv"
+content = "headline"        # 表格 ML"活基准"（51 数据集）：Elo 前 20 的方法入库，ta_* 信号
+fetch_interval_hours = 24   # 榜单几周才动一次，重复行走 dup（CloudFront 回弱 etag、
+                            # 回传按强比较仍 200，此源无 304，17KB/次可忽略）
+enabled = true              # 路径即子集坐标（entrants_models=模型池，与网站默认视图一致）
+
+[[source]]
 id = "netflix-tech"
 board = "data"
 name = "Netflix TechBlog"

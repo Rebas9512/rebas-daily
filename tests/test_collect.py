@@ -2,6 +2,7 @@
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from rebas import db as database
 from rebas.collect import arxiv, boards
@@ -990,3 +991,149 @@ def test_error_streak_accumulates_and_fast_retry(tmp_path, monkeypatch):
     st = conn.execute("SELECT * FROM fetch_state WHERE source_id='s1'").fetchone()
     assert st["error_streak"] == 2
     conn.close()
+
+
+# ---------- TabArena 表格模型榜（2026-09-18） ----------
+
+_TA_FIXTURE = (Path(__file__).parent / "fixtures"
+               / "tabarena_leaderboard_2026-09-18.csv").read_bytes()
+
+
+def test_tabarena_parser():
+    """生产原样 CSV（09-18 快照，91 行）：按方法聚合变体取 Elo 前 20，ta_* 信号入库；
+    榜单语义（kind=repo、published_at=None）与 gh_trending/openrouter_rankings 对齐。"""
+    from rebas.collect.boards import parse_tabarena
+
+    src = make_source(id="tabarena", type="tabarena_leaderboard", board="data")
+    items, cut = parse_tabarena(src, _TA_FIXTURE)
+    assert len(items) == 20 and cut == 71          # 91 行 → 聚合+截断
+    top = items[0]
+    assert top.title == "LimiX-2" and top.signals["ta_rank"] == 1
+    assert top.signals["ta_elo"] == 1936
+    assert top.signals["ta_class"] == "Foundation Model"
+    assert top.signals["ta_variant"] == "default"           # 变体不进标题，进信号
+    assert top.signals["ta_commercial"] is False            # 非商用许可=选题看点
+    assert top.signals["ta_train_s1k"] == 30.94
+    assert "第 1 位" in top.summary and "Elo 1936" in top.summary
+    assert "不可商用" in top.summary
+    assert top.kind == "repo" and top.published_at is None  # 榜单窗口语义
+    assert top.url == "https://arxiv.org/abs/2609.17488"    # 读者点原址
+    assert top.url_canonical == "https://tabarena.ai/?model=limix-2"
+    # 名次严格按 Elo 降序
+    elos = [it.signals["ta_elo"] for it in items]
+    assert elos == sorted(elos, reverse=True)
+    assert [it.signals["ta_rank"] for it in items] == list(range(1, 21))
+    # github 条目取 owner 作者，arXiv 条目不瞎认
+    causilo = next(it for it in items if it.title == "Causilo")
+    assert causilo.author == "nums-ai"
+    assert top.author is None
+
+
+def test_tabarena_sibling_methods_keep_distinct_identity():
+    """同一篇论文挂多个方法（TabPFN-3.5 与 -Fast 同指 arXiv:2609.17895）——身份按方法
+    slug，不能用论文 URL 当 url_canonical，否则后来者被唯一约束静默吞掉。"""
+    from rebas.collect.boards import parse_tabarena
+
+    src = make_source(id="tabarena", type="tabarena_leaderboard", board="data")
+    items, _ = parse_tabarena(src, _TA_FIXTURE)
+    fast = next(it for it in items if it.title == "TabPFN-3.5-Fast")
+    base = next(it for it in items if it.title == "TabPFN-3.5")
+    assert fast.url == base.url                              # 同一篇论文
+    assert fast.url_canonical != base.url_canonical          # 身份仍两条
+    assert len({it.url_canonical for it in items}) == len(items)
+    assert len({it.content_hash for it in items}) == len(items)
+
+
+_TA_MINI_HEADER = ("#,Type,TypeName,Model,Elo [⬆️],Score [⬆️],Rank [⬇️],"
+                   "Improvability (%) [⬇️],Median Train Time (s/1K) [⬇️],"
+                   "Median Predict Time (s/1K) [⬇️],Commercial\n")
+
+
+def test_tabarena_variant_aggregation_keeps_best():
+    """一个方法三个变体（default/tuned/tuned + ensembled）聚成一条，取 Elo 最好的那个
+    ——不聚合的话三行同 slug 会在批内互相顶掉，且榜位语义变成"变体位次"。"""
+    from rebas.collect.boards import parse_tabarena
+
+    csv_bytes = (_TA_MINI_HEADER +
+                 "0,x,GBDT,[LightGBM (default)](https://github.com/microsoft/LightGBM),"
+                 "1200.0,0.5,30.0,9.0,1.0,0.1,True\n"
+                 "1,x,GBDT,[LightGBM (tuned + ensembled)](https://github.com/microsoft/LightGBM),"
+                 "1400.0,0.7,20.0,5.0,3.0,0.2,True\n"
+                 "2,x,GBDT,[LightGBM (tuned)](https://github.com/microsoft/LightGBM),"
+                 "1300.0,0.6,25.0,7.0,2.0,0.15,True\n").encode()
+    items, cut = parse_tabarena(make_source(id="ta", type="tabarena_leaderboard",
+                                           board="data"), csv_bytes)
+    assert len(items) == 1 and cut == 2
+    it = items[0]
+    assert it.title == "LightGBM"                            # 变体后缀不进标题
+    assert it.signals["ta_elo"] == 1400 and it.signals["ta_variant"] == "tuned + ensembled"
+    assert it.signals["ta_commercial"] is True and "可商用" in it.summary
+
+
+def test_tabarena_header_decoration_change_still_parses():
+    """表头排序箭头是装饰字符——换了/掉了仍要按前缀定位到列（openrouter 改版教训）。"""
+    from rebas.collect.boards import parse_tabarena
+
+    csv_bytes = ("#,Type,TypeName,Model,Elo [↑],Score,Rank,Improvability (%),"
+                 "Median Train Time (s/1K),Median Predict Time (s/1K),Commercial\n"
+                 "0,x,NN,[RealMLP (tuned)](https://github.com/dholzmueller/pytabkit),"
+                 "1500.0,0.8,12.0,4.0,6.0,0.3,True\n").encode()
+    items, _ = parse_tabarena(make_source(id="ta", type="tabarena_leaderboard",
+                                          board="data"), csv_bytes)
+    assert items[0].signals["ta_elo"] == 1500
+    assert items[0].signals["ta_score"] == 0.8
+    assert items[0].signals["ta_train_s1k"] == 6.0
+
+
+def test_tabarena_missing_columns_raises():
+    """导出格式改版（没了 Model/Elo 列）必须抛错走 error 路径，绝不静默返回空。"""
+    import pytest
+
+    from rebas.collect.boards import parse_tabarena
+
+    src = make_source(id="ta", type="tabarena_leaderboard", board="data")
+    with pytest.raises(RuntimeError, match="TabArena CSV"):
+        parse_tabarena(src, b"method,rating\nLightGBM,1200\n")
+    with pytest.raises(RuntimeError, match="TabArena CSV"):
+        parse_tabarena(src, _TA_MINI_HEADER.encode())        # 只有表头无数据行
+
+
+def test_tabarena_elo_move_signal(tmp_path):
+    """Elo 走绝对值变动（1936→1960 是 +24 分，说成 +1.2% 无意义）；与盘口 pm_move_pp
+    同享基线新鲜度守卫，且不触发预测市场的重激活口径。"""
+    conn = database.init_db(tmp_path / "t.sqlite")
+    base = dict(source_id="tabarena", board="data", kind="repo",
+                url="https://arxiv.org/abs/2609.17488",
+                url_canonical="https://tabarena.ai/?model=limix-2",
+                title="LimiX-2", content_hash="h1")
+    assert database.insert_item(conn, RawItem(**base, signals={"ta_elo": 1936}),
+                                revive_days=14) == "new"
+    out = database.insert_item(conn, RawItem(**base, signals={"ta_elo": 1960}),
+                               revive_days=14)
+    assert out == "merged"
+    sig = json.loads(conn.execute(
+        "SELECT signals FROM raw_items WHERE url_canonical=?",
+        (base["url_canonical"],)).fetchone()["signals"])
+    assert sig["ta_elo"] == 1960 and sig["ta_elo_move"] == 24
+    assert sig["trending_streak"] == 1                    # 榜单源记在榜天数
+    assert "pm_move_pp" not in sig
+    conn.close()
+
+
+def test_tabarena_registered_in_runner():
+    """解析器注册 + 14 天回榜窗口（方法跌出前 20 再回来=趋势事件）。"""
+    from rebas.collect import runner as collect_runner
+
+    assert collect_runner.PARSERS["tabarena_leaderboard"] is not None
+    assert collect_runner.REVIVE_DAYS["tabarena_leaderboard"] == 14
+
+
+def test_tabarena_source_configured():
+    """配置项自洽：data 板块、榜单型 content=headline、端点指向 models 子集的 CSV。"""
+    from rebas.config import load_sources
+
+    src = next(s for s in load_sources() if s.id == "tabarena")
+    assert src.board == "data" and src.type == "tabarena_leaderboard"
+    assert src.content == "headline" and src.enabled
+    assert src.endpoint.endswith("/entrants_models/imputation_yes/splits_all"
+                                 "/tasks_all/datasets_all/website_leaderboard.csv")

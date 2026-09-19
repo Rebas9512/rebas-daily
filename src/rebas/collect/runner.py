@@ -25,6 +25,7 @@ PARSERS = {
     "hf_models": hf.parse_models,
     "hn_algolia": boards.parse_hn,
     "gh_trending": boards.parse_gh_trending,
+    "tabarena_leaderboard": boards.parse_tabarena,
     "openalex_journal": journals.parse_openalex_journal,
     "jmlr_volume": journals.parse_jmlr_volume,
     "reddit_rss": reddit.parse_reddit_rss,
@@ -39,6 +40,7 @@ PARSERS = {
 # 榜单类源的"重新上榜"窗口：同一仓库/模型出榜超过 N 天后再上榜，重新进入待处理池
 # （openrouter_models 是上架流非榜单，published_at=created 走正常窗口，不 revive）
 REVIVE_DAYS = {"gh_trending": 14, "hf_models": 14, "openrouter_rankings": 14,
+               "tabarena_leaderboard": 14,
                "polymarket_events": 14, "kalshi_events": 14}
 
 # 预测市场（2026-08-27）：摘要=赔率快照须随 merge 刷新；已处理条目盘口异动
