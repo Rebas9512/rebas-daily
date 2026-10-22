@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import glob
+import logging
 import os
 import shutil
 import subprocess
@@ -17,6 +18,8 @@ from pathlib import Path
 
 from rebas.config import AppConfig
 from rebas.llm.base import LLMError
+
+log = logging.getLogger(__name__)
 
 _RATE_LIMIT_MARKERS = ("rate limit", "429", "too many requests", "usage limit")
 _RATE_LIMIT_BACKOFF = 300  # 撞限速后等 5 分钟再试一次
@@ -60,7 +63,9 @@ class CodexBackend:
         model = self.roles.get(role) or self.roles.get("default")
         search = role in self.search_roles
         timeout = self.timeout * 2 if search else self.timeout
-        for attempt in (0, 1):
+        # 限速与超时各有一次重试额度（互不占用）
+        rate_limited = timed_out = False
+        while True:
             self._throttle()
             with tempfile.NamedTemporaryFile(
                 mode="r", suffix=".txt", prefix="rebas_llm_", delete=False
@@ -83,7 +88,8 @@ class CodexBackend:
                         return text
                     raise LLMError(f"codex 正常退出但无输出（role={role}）")
                 stderr = (proc.stderr or "").lower()
-                if attempt == 0 and any(m in stderr for m in _RATE_LIMIT_MARKERS):
+                if not rate_limited and any(m in stderr for m in _RATE_LIMIT_MARKERS):
+                    rate_limited = True
                     time.sleep(_RATE_LIMIT_BACKOFF)   # 限速 → 长退避重试一次
                     continue
                 raise LLMError(
@@ -91,8 +97,12 @@ class CodexBackend:
                     f"{(proc.stderr or '')[-300:]}"
                 )
             except subprocess.TimeoutExpired:
-                raise LLMError(f"codex exec 超时（>{timeout}s, role={role}）") from None
+                # 上游偶发卡流：首段推理后整段静默、被杀后才吐出合法结果（10-12/10-22
+                # rollout 实证，同窗正常调用 ≤135s）——非内容问题，立即重跑一次
+                if timed_out:
+                    raise LLMError(f"codex exec 超时（>{timeout}s, role={role}，已重试）") from None
+                timed_out = True
+                log.warning("[llm] codex exec 超时（>%ss, role=%s），立即重试一次", timeout, role)
             finally:
                 self._mark_call_done()
                 out_path.unlink(missing_ok=True)
-        raise LLMError(f"codex exec 限速重试后仍失败（role={role}）")

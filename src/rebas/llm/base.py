@@ -181,27 +181,58 @@ def extract_json(text: str):
     raise LLMError(_describe_failure(candidate, first_err))
 
 
+_NO_JSON_PREFIX = "输出中找不到 JSON"
+
+
+def _escape_hint(err: LLMError) -> str:
+    if "escape" not in str(err):
+        return ""
+    return ("JSON 字符串里的反斜杠必须写成 \\\\（LaTeX 命令如 \\\\delta、\\\\frac），"
+            "并且全文一致。")
+
+
+def _repair_prompt(bad_output: str, err: LLMError) -> str:
+    """自修提示词：把上次输出原文 + 报错交还模型，只修格式不重写内容。
+
+    比"附报错整份重生成"省一轮完整创作，且不会顺手把内容也换掉；
+    两次 LaTeX 事故里重生成都在同一处复现，让模型对着原文改更容易改对。
+    """
+    return (
+        "下面是你上一次输出的原文，它应当是一份 JSON，但解析失败了。\n\n"
+        f"[解析报错] {err}\n{_escape_hint(err)}\n\n"
+        "请对照报错找到出错的地方，只修正格式问题（引号、转义、括号、逗号等），"
+        "不要改动任何字段的内容与措辞，不要增删字段，不要联网搜索。"
+        "输出修正后的完整 JSON，只输出 JSON，不要任何其他文字。\n\n"
+        f"[上一次输出原文]\n{bad_output}"
+    )
+
+
 def complete_json(backend: LLMBackend, prompt: str, *, role: str = "default",
                   retries: int = 1, images=()):
-    """调用模型并解析 JSON；解析失败时把错误喂回去重试。
+    """调用模型并解析 JSON；解析失败时兜底重试 retries 次。
+
+    兜底分两种：输出里有 JSON 但坏了 → 把原文和报错交还模型自修（_repair_prompt，
+    不带图）；输出里根本没有 JSON（答非所问/空话）→ 无可修之物，原提示词附报错重生成。
 
     images: 本地图片路径（撰写期图片审选）。仅在非空时传给后端，
     纯文本后端与既有测试桩不受影响。
     """
     kwargs = {"images": tuple(images)} if images else {}
-    last_err: LLMError | None = None
+    text = backend.complete(prompt, role=role, **kwargs)
     for attempt in range(retries + 1):
-        text = backend.complete(prompt, role=role, **kwargs)
         try:
             return extract_json(text)
         except LLMError as err:
-            last_err = err
-            hint = ""
-            if "escape" in str(err):
-                hint = ("JSON 字符串里的反斜杠必须写成 \\\\（LaTeX 命令如 \\\\delta、\\\\frac），"
-                        "并且全文一致。")
-            prompt = (
-                f"{prompt}\n\n[上一次输出无法解析为 JSON：{err}。{hint}"
-                "请重新输出，只输出合法 JSON，不要任何其他文字。]"
-            )
-    raise last_err  # type: ignore[misc]
+            if attempt == retries:
+                raise
+            if str(err).startswith(_NO_JSON_PREFIX):
+                log.warning("[llm] 输出无 JSON，附报错重生成（role=%s）", role)
+                text = backend.complete(
+                    f"{prompt}\n\n[上一次输出无法解析为 JSON：{err}。{_escape_hint(err)}"
+                    "请重新输出，只输出合法 JSON，不要任何其他文字。]",
+                    role=role, **kwargs)
+            else:
+                log.warning("[llm] JSON 解析失败，回喂原文请模型自修（role=%s）：%s",
+                            role, str(err)[:160])
+                text = backend.complete(_repair_prompt(text, err), role=role)
+    raise AssertionError("unreachable")

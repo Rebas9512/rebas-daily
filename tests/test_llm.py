@@ -85,6 +85,78 @@ def test_complete_json_exhausted_raises():
         complete_json(backend, "任务", role="t", retries=1)
 
 
+def test_complete_json_repair_feeds_original_output_back():
+    """有 JSON 但坏了 → 回喂原文 + 报错请模型自修，不再整份重生成。"""
+    bad = '{"title":"标题","body":"缺了闭合'
+    backend = FakeBackend([bad, '{"title":"标题","body":"缺了闭合"}'])
+    assert complete_json(backend, "原任务提示词", role="t") == {
+        "title": "标题", "body": "缺了闭合"}
+    repair = backend.prompts[1]
+    assert bad in repair and "解析报错" in repair
+    assert "原任务提示词" not in repair   # 只修格式，不重做任务
+
+
+def test_complete_json_repair_drops_images():
+    class ImageBackend(FakeBackend):
+        def __init__(self, outputs):
+            super().__init__(outputs)
+            self.images = []
+
+        def complete(self, prompt, *, role="default", images=()):
+            self.images.append(tuple(images))
+            return super().complete(prompt, role=role)
+
+    ib = ImageBackend(['{"a":1,}', '{"a":1}'])
+    assert complete_json(ib, "任务", images=["/tmp/a.jpg"]) == {"a": 1}
+    assert ib.images == [("/tmp/a.jpg",), ()]
+
+
+def test_complete_json_repair_once_then_raises():
+    backend = FakeBackend(['{"a":1,}', '{"a":2,}'])
+    with pytest.raises(LLMError):
+        complete_json(backend, "任务", role="t")
+    assert len(backend.prompts) == 2
+
+
+class TestCodexTimeoutRetry:
+    def _backend(self, tmp_path, monkeypatch):
+        from types import SimpleNamespace
+
+        from rebas.llm.codex_cli import CodexBackend
+        monkeypatch.setattr("rebas.llm.codex_cli.find_codex_bin", lambda: "codex")
+        return CodexBackend(SimpleNamespace(codex_home=tmp_path), {"default": "m"},
+                            call_gap=0, timeout=1)
+
+    def _fake_run(self, outcomes):
+        import subprocess
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            outcome = outcomes.pop(0)
+            if outcome == "timeout":
+                raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+            out = cmd[cmd.index("--output-last-message") + 1]
+            open(out, "w", encoding="utf-8").write(outcome)
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return run, calls
+
+    def test_timeout_retries_once(self, tmp_path, monkeypatch):
+        b = self._backend(tmp_path, monkeypatch)
+        run, calls = self._fake_run(["timeout", '{"ok": 1}'])
+        monkeypatch.setattr("rebas.llm.codex_cli.subprocess.run", run)
+        assert b.complete("p") == '{"ok": 1}'
+        assert len(calls) == 2
+
+    def test_second_timeout_raises(self, tmp_path, monkeypatch):
+        b = self._backend(tmp_path, monkeypatch)
+        run, calls = self._fake_run(["timeout", "timeout"])
+        monkeypatch.setattr("rebas.llm.codex_cli.subprocess.run", run)
+        with pytest.raises(LLMError, match="已重试"):
+            b.complete("p")
+        assert len(calls) == 2
+
+
 def test_complete_json_images_passthrough():
     """images 仅在非空时传给后端——纯文本后端（无 images 参数）不受影响。"""
     class ImageBackend(FakeBackend):
