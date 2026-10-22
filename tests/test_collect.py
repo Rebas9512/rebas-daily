@@ -1137,3 +1137,56 @@ def test_tabarena_source_configured():
     assert src.content == "headline" and src.enabled
     assert src.endpoint.endswith("/entrants_models/imputation_yes/splits_all"
                                  "/tasks_all/datasets_all/website_leaderboard.csv")
+
+
+# ---- 2026-10-22 信息源维护：0 条护栏 + wp_json ----
+
+def test_parse_feed_zero_entries_raises():
+    """端点被跳转到 HTML 页仍回 200（pfn-tech 静默断供）→ 抛错进 error 路径。"""
+    import pytest
+
+    from rebas.collect import feeds
+    html = b"<!doctype html><html><head><title>Blog</title></head><body>x</body></html>"
+    with pytest.raises(RuntimeError, match="0 条"):
+        feeds.parse_feed(make_source(type="rss"), html, conn=None, client=None)
+
+
+def test_parse_feed_zero_entries_gnews_exempt():
+    from rebas.collect import feeds
+    empty = b'<?xml version="1.0"?><rss version="2.0"><channel><title>t</title></channel></rss>'
+    assert feeds.parse_feed(make_source(type="gnews_rss"), empty,
+                            conn=None, client=None) == ([], 0)
+
+
+def test_parse_wp_json():
+    from rebas.collect import feeds
+    posts = [{
+        "id": 1, "date": "2026-10-19T09:31:06", "date_gmt": "2026-10-19T13:31:06",
+        "link": "https://www.printmag.com/design/a-post/",
+        "title": {"rendered": "Type &#8217;s Future"},
+        "excerpt": {"rendered": "<p>摘要</p>"},
+        "content": {"rendered": '<p>正文全文</p><img src="https://www.printmag.com/i/2.jpg"/>'},
+        "jetpack_featured_media_url": "https://www.printmag.com/i/1.jpg",
+        "yoast_head_json": {"author": "Jane Doe"},
+    }, {"id": 2, "link": "", "title": {"rendered": "无链接丢弃"}}]
+    items, extra = feeds.parse_wp_json(
+        make_source(type="wp_json", content="fulltext"), json.dumps(posts).encode())
+    assert extra == 0 and len(items) == 1
+    it = items[0]
+    assert it.title == "Type ’s Future" and it.author == "Jane Doe"
+    assert it.published_at == "2026-10-19T13:31:06+00:00"
+    assert it.summary == "摘要" and "正文全文" in it.extracted_text
+    assert it.image_url == "https://www.printmag.com/i/1.jpg"
+    assert "https://www.printmag.com/i/2.jpg" in it.image_urls
+
+
+def test_parse_wp_json_og_image_fallback_and_empty():
+    import pytest
+
+    from rebas.collect import feeds
+    posts = [{"link": "https://x.org/p/", "title": {"rendered": "T"},
+              "yoast_head_json": {"og_image": [{"url": "https://x.org/og.jpg"}]}}]
+    items, _ = feeds.parse_wp_json(make_source(type="wp_json"), json.dumps(posts).encode())
+    assert items[0].image_url == "https://x.org/og.jpg" and items[0].extracted_text is None
+    with pytest.raises(RuntimeError):
+        feeds.parse_wp_json(make_source(type="wp_json"), b"[]")

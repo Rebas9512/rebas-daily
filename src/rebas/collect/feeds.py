@@ -88,6 +88,11 @@ def parse_feed(source: Source, data: bytes, *, conn: sqlite3.Connection,
     （hn-frontpage → hnrss.org 场景）。注意 gnews 标题此处尚未去媒体名后缀，
     gnews+prefilter 组合（目前不存在）会拿后缀参与匹配。"""
     parsed = feedparser.parse(data)
+    # 0 条目 = feed 已失效的典型形态：端点被 302 到 HTML 页仍回 200（pfn-tech 2026-08
+    # 起静默断供两个月才被发现）。抛错进 error 路径，日志 ✗ 可见。gnews 搜索窄查询
+    # 偶有合法空结果，豁免。
+    if not parsed.entries and source.type != "gnews_rss":
+        raise RuntimeError("feed 解析出 0 条（疑似失效：端点被跳转到 HTML 页或改版）")
     items: list[RawItem] = []
     skipped = 0
     budget = GNEWS_RESOLVE_BUDGET
@@ -201,3 +206,44 @@ def parse_truth_rss(source: Source, data: bytes, *, conn=None, client=None,
             it.title = it.summary[:120]
             it.content_hash = content_hash(it.title)
     return items, extra
+
+
+# ---- wp_json：WordPress REST API（2026-10-22，printmag）----
+# 站点在 nginx 层把整站与 /feed/ 都 403（换 UA 无效，双端同），但 /wp-json/wp/v2/posts
+# 照常 200 且带全文——feed 被封的 WP 站的兜底通道。gnews 救不了这类站：只给标题，
+# 管线 lazy fetch 原文同样 403。endpoint 写完整 posts URL（带 per_page/_fields）。
+def parse_wp_json(source: Source, data: bytes, **_) -> tuple[list[RawItem], int]:
+    posts = json.loads(data)
+    if not isinstance(posts, list):
+        raise RuntimeError(f"wp-json 返回非列表：{str(posts)[:120]}")
+    if not posts:
+        raise RuntimeError("wp-json 返回 0 篇（疑似失效）")
+    items: list[RawItem] = []
+    for p in posts:
+        link = (p.get("link") or "").strip()
+        title = strip_html((p.get("title") or {}).get("rendered", "")).strip()
+        if not link or not title:
+            continue
+        content_html = (p.get("content") or {}).get("rendered", "") or ""
+        excerpt = (p.get("excerpt") or {}).get("rendered", "") or ""
+        yoast = p.get("yoast_head_json") or {}
+        image_url = p.get("jetpack_featured_media_url") or next(
+            (img.get("url") for img in yoast.get("og_image") or [] if img.get("url")), None)
+        gallery_html = (f'<img src="{image_url}"/>' if image_url else "") + content_html
+        date_gmt = p.get("date_gmt")
+        items.append(RawItem(
+            source_id=source.id,
+            board=source.board,
+            kind=source.kind,
+            url=link,
+            url_canonical=canonicalize_url(link),
+            title=title,
+            author=yoast.get("author"),
+            published_at=parse_date(f"{date_gmt}+00:00" if date_gmt else p.get("date")),
+            summary=strip_html(excerpt, limit=2000) or None,
+            extracted_text=strip_html(content_html) if source.content == "fulltext" and content_html else None,
+            content_hash=content_hash(title),
+            image_url=image_url,
+            image_urls=all_images(gallery_html, base_url=link),
+        ))
+    return items, 0

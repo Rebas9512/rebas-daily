@@ -31,6 +31,7 @@ PARSERS = {
     "reddit_rss": reddit.parse_reddit_rss,
     "nitter_rss": feeds.parse_nitter_rss,
     "truth_rss": feeds.parse_truth_rss,
+    "wp_json": feeds.parse_wp_json,
     "openrouter_rankings": openrouter.parse_openrouter_rankings,
     "openrouter_models": openrouter.parse_openrouter_models,
     "polymarket_events": prediction.parse_polymarket_events,

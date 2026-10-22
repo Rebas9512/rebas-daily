@@ -1,9 +1,10 @@
 # rebas_daily 信息源清单（实测于 2026-07-03，详见 vault: 02 信息源规划.md）
 #
 # type    : 采集器类型  rss | arxiv_rss | gnews_rss | hf_papers | hf_models | hn_algolia | gh_trending
-#           | openalex_journal | jmlr_volume | reddit_rss | nitter_rss | truth_rss | reddit_oauth(预留)
+#           | openalex_journal | jmlr_volume | reddit_rss | nitter_rss | truth_rss | wp_json | reddit_oauth(预留)
 #           - rss:        标准 RSS/Atom（解析前先 lstrip，Dezeen 等源开头有空白）
 #           - arxiv_rss:  arXiv 日更 feed（跳过 replace 公告、论文 ID 规范化、预筛前置）
+#           - wp_json:    WordPress REST posts（feed 被封但 REST 开放的 WP 站，全文+配图）
 #           - gnews_rss:  Google News RSS 兜底（链接是跳转 URL，入库前经 batchexecute 解析真实地址）
 #           - hf_papers:  HF Daily Papers JSON API（带 upvotes/评论数/缩略图信号）
 #           - hf_models:  HF Trending Models JSON API（下载量/点赞信号）
@@ -528,7 +529,7 @@ id = "trumpstruth"
 board = "finance"
 name = "Trump · Truth Social（归档）"
 type = "truth_rss"
-endpoint = "https://trumpstruth.org/feed"
+endpoint = "https://www.trumpstruth.org/feed"
 content = "headline"
 fetch_interval_hours = 4
 enabled = true
@@ -627,7 +628,7 @@ id = "quanta"
 board = "data"
 name = "Quanta Magazine"
 type = "rss"
-endpoint = "https://api.quantamagazine.org/feed/"
+endpoint = "https://www.quantamagazine.org/feed/"
 content = "abstract"
 fetch_interval_hours = 12
 enabled = true
@@ -693,7 +694,7 @@ id = "ft-home"
 board = "finance"
 name = "Financial Times"
 type = "rss"
-endpoint = "https://www.ft.com/rss/home"
+endpoint = "https://www.ft.com/rss/home/international"
 content = "headline"
 fetch_interval_hours = 4
 paywall = true
@@ -713,12 +714,17 @@ enabled = true
 [[source]]
 id = "yahoo-finance"
 board = "finance"
-name = "Yahoo Finance"
-type = "rss"
-endpoint = "https://finance.yahoo.com/news/rssindex"
+name = "Yahoo Finance (via Google News)"
+type = "gnews_rss"
+endpoint = "https://news.google.com/rss/search?q=site:finance.yahoo.com+when:1d&hl=en-US&gl=US&ceid=US:en"
 content = "headline"
-fetch_interval_hours = 2
-enabled = true
+fetch_interval_hours = 4   # gnews 每条解析两次请求，2h 太密（同 bloomberg 4h）
+enabled = true              # Yahoo 官方下线全部综合新闻 RSS：09-24 15:00Z 起 feed 冻结（之后 57 轮全是
+                            # 304，日均 150 条骤降为 0 却无报错），10-06 00:01 CDT 起 404（外部
+                            # 订阅器/开源项目同日报错，无官方公告）；/rss/topstories、/news/rss、/rss/
+                            # 同 404。仍在服务的按代码 headline feed（外部项目换用 ^GSPC,^DJI,^IXIC）
+                            # 对本客户端双端 429 → 切 gnews 兜底（bloomberg 剧本）。
+                            # 复活条件：https://finance.yahoo.com/news/rssindex 复活可切回 rss
 
 [[source]]
 id = "fed-press"
@@ -885,7 +891,7 @@ id = "hyperallergic"
 board = "art"
 name = "Hyperallergic"
 type = "rss"
-endpoint = "https://hyperallergic.com/feed/"
+endpoint = "https://hyperallergic.com/rss/"
 content = "fulltext"
 fetch_interval_hours = 12
 enabled = true
@@ -895,7 +901,7 @@ id = "wallpaper"
 board = "art"
 name = "Wallpaper*"
 type = "rss"
-endpoint = "https://www.wallpaper.com/feeds/rss"
+endpoint = "https://www.wallpaper.com/feeds.xml"
 content = "fulltext"
 fetch_interval_hours = 12
 enabled = true
@@ -1234,11 +1240,15 @@ enabled = true             # UX 研究权威，低频（~2 条/周）高质
 id = "printmag"
 board = "design"
 name = "PRINT Magazine"
-type = "rss"
-endpoint = "https://www.printmag.com/feed/"
+type = "wp_json"
+endpoint = "https://www.printmag.com/wp-json/wp/v2/posts?per_page=15&_fields=id,date,date_gmt,link,title,excerpt,content,jetpack_featured_media_url,yoast_head_json"
 content = "fulltext"
 fetch_interval_hours = 12
-enabled = true             # 平面设计文化，~1.7 条/天
+enabled = true             # 平面设计文化，~1.7 条/天。2026-10 起整站与 /feed/ 被 nginx 403
+                           # （换浏览器/阅读器 UA 均无效，双端同），WP REST API 照常 200 带全文
+                           # → 改 wp_json（gnews 只给标题、lazy fetch 原文同样 403，救不了）。
+                           # REST 限速严（连打 ~8 次即 429），12h 间隔无碍，手动探测别连打。
+                           # 复活条件：https://www.printmag.com/feed/ 回 200 可切回 rss
 
 [[source]]
 id = "creativereview"
@@ -1344,7 +1354,7 @@ id = "quantocracy"
 board = "quant"
 name = "Quantocracy（量化博客聚合）"
 type = "rss"
-endpoint = "https://quantocracy.com/feed/"
+endpoint = "https://feeds.feedburner.com/Quantocracy"
 content = "headline"
 fetch_interval_hours = 6
 enabled = true              # 聚合器，条目链向各从业者博客原文
@@ -1424,7 +1434,7 @@ id = "hedgeweek"
 board = "quant"
 name = "Hedgeweek"
 type = "rss"
-endpoint = "https://www.hedgeweek.com/feed/"
+endpoint = "https://hedgeweek.com/feed/"
 content = "headline"
 fetch_interval_hours = 6
 enabled = true              # 对冲基金产业新闻
@@ -1572,7 +1582,7 @@ id = "towardsdatascience"
 board = "data"
 name = "Towards Data Science"
 type = "rss"
-endpoint = "https://towardsdatascience.com/feed"
+endpoint = "https://towardsdatascience.com/feed/"
 content = "abstract"
 fetch_interval_hours = 6
 enabled = true
@@ -1723,7 +1733,7 @@ id = "dbt-blog"
 board = "data"
 name = "dbt Blog"
 type = "rss"
-endpoint = "https://www.getdbt.com/blog/rss.xml"
+endpoint = "https://www.getdbt.com/blog/feed.xml"
 content = "abstract"
 fetch_interval_hours = 24
 enabled = true              # vendor 内容偏营销，靠粗筛压
@@ -1839,7 +1849,10 @@ type = "rss"
 endpoint = "https://tech.preferred.jp/en/feed/"
 content = "fulltext"
 fetch_interval_hours = 24
-enabled = true              # 日本 AI 实验室工程博客(英文)，月更级安静源
+enabled = false             # 日本 AI 实验室工程博客(英文)，月更级安静源。2026-08 起博客并入
+                            # preferred.jp/en/blog/tech（旧 feed 302 到 HTML 列表页、200 但 0 条，
+                            # 静默断供两个月——促成 parse_feed 0 条护栏），新站无 feed，gnews
+                            # 只搜得到 2018 年旧文 → 禁用。复活条件：新站出 feed
 
 # ---- 数据板块：中国大厂工程博客 ----
 
@@ -1848,7 +1861,7 @@ id = "meituan-tech"
 board = "data"
 name = "美团技术团队"
 type = "rss"
-endpoint = "https://tech.meituan.com/feed/"
+endpoint = "https://tech.meituan.com/rss.xml"
 content = "fulltext"
 fetch_interval_hours = 12
 enabled = true              # 中文大厂工程主力，与 Netflix/Meta/Airbnb 对位；条目缺 pubDate，走 fetched_at 兜底窗口
@@ -1860,7 +1873,7 @@ id = "spoon-tamago"
 board = "design"
 name = "Spoon & Tamago"
 type = "rss"
-endpoint = "https://www.spoon-tamago.com/feed/"
+endpoint = "https://spoon-tamago.com/feed/"
 content = "abstract"
 fetch_interval_hours = 12
 enabled = true              # 日本设计/艺术(英文)，~1 条/天
