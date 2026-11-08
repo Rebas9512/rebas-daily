@@ -1608,19 +1608,21 @@ def stage_research(conn, conf: AppConfig, backend: LLMBackend, board: str,
 _IMAGE_EXT = {"image/jpeg": ".jpg", "image/png": ".png",
               "image/webp": ".webp", "image/gif": ".gif"}
 _CARD_IMG_TOKEN_RE = re.compile(r"!\[[^\]\n]*\]\(\s*IMG\d+\s*\)")
-IMAGE_REVIEW_CAP = 6            # 每篇最多附几张候选图
+IMAGE_REVIEW_CAP = 6            # 每篇最多附几张候选图（多图版式板块）
+IMAGE_REVIEW_CAP_SINGLE = 4     # 单图版式板块只需挑一张头图（真图 og:image 已排最前），少附省额度
 IMAGE_MAX_BYTES = 8_000_000     # 单图字节上限（防超大原图浪费附件与 token）
 IMAGE_MIN_BYTES = 2_000         # 单图字节下限（躲过 URL 过滤的小图标/跟踪像素）
 
 
-def _prepare_topic_images(conf: AppConfig, topic_id: int, rows) -> list:
+def _prepare_topic_images(conf: AppConfig, topic_id: int, rows,
+                          cap: int = IMAGE_REVIEW_CAP) -> list:
     """图片审选的候选准备：与导出层同口径收集候选 → 下载到临时缓存。
 
     返回 [(编号, 原始URL, 本地Path)]，编号=附件顺序（1 起，与提示词对应）。
     下载失败/非图片/超限的候选直接剔除（对读者大概率也加载不出来）；
     全失败或无候选返回空列表 = 本篇不审选（image_plan 留 NULL 回退旧行为）。"""
     from rebas.render.export import _topic_images  # 懒加载：渲染依赖不拖进常规路径
-    candidates = _topic_images(None, rows, cap=IMAGE_REVIEW_CAP)
+    candidates = _topic_images(None, rows, cap=cap)
     out = []
     with make_client() as client:
         for url in candidates:
@@ -1687,6 +1689,10 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
         if own:
             ft_refs[own["id"]] = ft_refs.get(own["id"], 0) + 1
     review_images = board in conf.image_review_boards
+    # 单图版式板块（2026-11-07 审选扩到全板块）：只展示头图，候选少附、提示词按单图口径
+    from rebas.render.export import _MULTI_IMAGE_BOARDS  # 懒加载同 _prepare_topic_images
+    multi_image = board in _MULTI_IMAGE_BOARDS
+    review_cap = IMAGE_REVIEW_CAP if multi_image else IMAGE_REVIEW_CAP_SINGLE
     for t in topics:
         rows = topic_rows[t["id"]]
         is_brief = t["decision"] == "brief"
@@ -1712,7 +1718,8 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
                                   for s in bg_json.get("stories") or [])
         # 图片审选（2026-07-07）：候选图下载附给 writer 实际查看——留哪些（可全弃）、
         # 正文何处插图由它定；下载全失败则本篇不审选（image_plan=NULL 回退旧行为）
-        numbered = _prepare_topic_images(conf, t["id"], rows) if review_images else []
+        numbered = (_prepare_topic_images(conf, t["id"], rows, review_cap)
+                    if review_images else [])
         img_paths = [p for _, _, p in numbered]
 
         def _build_prompt(img_block: str) -> str:
@@ -1751,7 +1758,8 @@ def stage_writer(conn, conf: AppConfig, backend: LLMBackend, board: str,
 
         t0 = time.time()
         try:
-            prompt = _build_prompt(images_block(numbered, is_brief=is_brief))
+            prompt = _build_prompt(images_block(numbered, is_brief=is_brief,
+                                                multi=multi_image))
             try:
                 result = complete_json(backend, prompt, role="writer",
                                        images=img_paths)

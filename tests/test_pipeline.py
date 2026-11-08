@@ -1483,6 +1483,94 @@ def test_topic_items_feed_topic_images(tmp_path):
     assert _topic_images(None, rows) == ["https://img.x/1.jpg", "https://img.x/2.jpg"]
 
 
+def test_topic_images_og_first_and_generic_filter(tmp_path):
+    """单图（feed 配图/页面 og:image）排在图库前：网页图库常以站点图标/导航素材打头，
+    真图不能被它们顶掉头图、也不能被审选候选上限截掉（2026-11-07 Yahoo 紫色图标事故：
+    财经头图 6 成是页面 64px 图标；GitHub 页面素材占满 6 张把仓库预览图挤出候选）。
+    Yahoo 无配图文章的 og:image 兜底品牌图按通用卡片滤掉。"""
+    import json
+
+    from rebas.agents.stages import _topic_items
+    from rebas.render.export import _topic_images
+
+    conn = _writer_design_conn(tmp_path)
+    chrome = [f"https://github.githubassets.com/assets/nav-{i}.png" for i in range(6)]
+    conn.execute("UPDATE raw_items SET image_url=?, image_urls=?",
+                 ("https://repository-images.x/preview.png", json.dumps(chrome)))
+    conn.commit()
+    rows = _topic_items(conn, conn.execute("SELECT * FROM topics").fetchone())
+    out = _topic_images(None, rows, cap=4)
+    assert out[0] == "https://repository-images.x/preview.png"   # 真图打头、不被截掉
+    assert out[1:] == chrome[:3]
+    # og:image 同时在图库里：去重后仍在首位
+    conn.execute("UPDATE raw_items SET image_urls=?",
+                 (json.dumps(["https://s.yimg.com/eo/icon.png",
+                              "https://repository-images.x/preview.png"]),))
+    conn.commit()
+    rows = _topic_items(conn, conn.execute("SELECT * FROM topics").fetchone())
+    assert _topic_images(None, rows) == ["https://repository-images.x/preview.png",
+                                         "https://s.yimg.com/eo/icon.png"]
+    # Yahoo 兜底品牌图过滤
+    conn.execute("UPDATE raw_items SET image_url=?, image_urls=NULL", (
+        "https://s.yimg.com/cv/apiv2/cv/apiv2/social/images/yahoo-finance-default-logo.png",))
+    conn.commit()
+    rows = _topic_items(conn, conn.execute("SELECT * FROM topics").fetchone())
+    assert _topic_images(None, rows) == []
+
+
+def test_images_block_single_vs_multi():
+    """单图版式板块的审选口径：明说只展示头图、通常选一张；正文插图收窄到图表类。
+    多图板块（艺术/设计）原口径不变。站点 logo/界面图标等噪声在审选规则里点名。"""
+    from rebas.agents.prompts import images_block
+
+    numbered = [(1, "https://x.com/a.jpg"), (2, "https://x.com/b.jpg")]
+    multi = images_block(numbered)
+    single = images_block(numbered, multi=False)
+    single_brief = images_block(numbered, is_brief=True, multi=False)
+    assert "单图版式" not in multi and "图组" in multi
+    assert "单图版式" in single and "选出一张头图" in single and "图表" in single
+    assert "速览不要正文插图" in single_brief
+    for text in (multi, single, single_brief):
+        assert "界面小图标" in text and "images_keep" in text and "IMG编号" in text
+    assert images_block([], multi=False) == "（本篇无图片材料）"
+
+
+def test_stage_writer_single_image_board_review(tmp_path, monkeypatch):
+    """审选扩到单图板块（2026-11-07）：候选上限按单图口径传入、提示词带单图说明，
+    images_keep 照常落 image_plan。"""
+    import dataclasses
+    import json
+
+    from rebas.agents import stages
+    from rebas.config import load_config
+
+    conn = _writer_design_conn(tmp_path)
+    conn.execute("UPDATE topics SET board='finance'")
+    conn.execute("UPDATE raw_items SET board='finance'")
+    conn.commit()
+    conf = dataclasses.replace(load_config(), data_dir=tmp_path,
+                               image_review_boards=("finance",))
+    p1 = tmp_path / "t1-1.jpg"
+    p1.write_bytes(b"x")
+    caps = []
+
+    def _fake_prepare(conf_, topic_id, rows, cap=stages.IMAGE_REVIEW_CAP):
+        caps.append(cap)
+        return [(1, "https://img.x/1.jpg", p1)]
+
+    monkeypatch.setattr(stages, "_prepare_topic_images", _fake_prepare)
+    backend = _FakeBackend(json.dumps(
+        {"card_summary": "卡", "body_md": "正文", "images_keep": [1]},
+        ensure_ascii=False))
+    assert stages.stage_writer(conn, conf, backend, "finance", "商业",
+                               "2026-01-01") == {"written": 1}
+    assert caps == [stages.IMAGE_REVIEW_CAP_SINGLE]
+    assert "单图版式" in backend.prompts[0]
+    assert json.loads(conn.execute("SELECT image_plan FROM articles").fetchone()[0]) \
+        == {"kept": [[1, "https://img.x/1.jpg"]]}
+    assert not p1.exists()
+
+
 def test_stage_writer_image_review(tmp_path, monkeypatch):
     """撰写期图片审选：候选图附给 writer、images_keep 按展示顺序落 image_plan
     （幽灵编号忽略、去重），临时图用完即删。"""

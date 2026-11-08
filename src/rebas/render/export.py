@@ -51,6 +51,7 @@ _KIND_LABEL = {"paper": "paper", "article": "news", "repo": "repo"}
 _GENERIC_IMAGE_HOSTS = (
     "opengraph.githubassets.com",
     "cdn-thumbnails.huggingface.co",   # HF 论文页缩略图 = PDF 首页截图
+    "/social/images/yahoo-finance-default-logo",   # Yahoo 无配图文章的 og:image 兜底品牌图
 )
 # 纯论文板块不配图（论文没有编辑意义上的配图；次要信源插图也不该顶到头条）
 _NO_IMAGE_BOARDS = {"academic"}
@@ -258,9 +259,15 @@ def _read_minutes(body_md: str) -> int:
 
 
 def _topic_images(article, items: list, cap: int = _TOPIC_IMAGES_CAP) -> list[str]:
-    """选题配图列表（首元素即单图版式用图）：按主编条目排序，每条先图库
-    （image_urls，采集/取材期提取的正文多图）后单图，末尾回退 image_refs
-    （writer 落库快照，兼容升级前旧数据）；过滤自动生成的社交卡片、去重。
+    """选题配图列表（首元素即单图版式用图）：按主编条目排序，每条先单图
+    （image_url=feed 配图或页面 og:image，发布方自选的代表图）后图库（image_urls，
+    采集/取材期按页面顺序收的 <img>），末尾回退 image_refs（writer 落库快照，兼容
+    升级前旧数据）；过滤自动生成的社交卡片、去重。
+
+    单图在前（2026-11-07）：原先图库在前，网页图库常以站点 logo/导航图标/跟踪像素
+    开头（Yahoo 页面 64px 图标占财经头图 6 成、GitHub 页面素材挤满 6 张），真图
+    og:image 被顶到后面——既当了错头图，也被审选候选上限截掉看不到。feed 源的图库
+    本就以 feed 单图打头，顺序不变。
 
     相对路径防御：上游历史数据可能存了相对 URL（Polars 博客实际踩坑），
     条目图按条目链接补全，image_refs 无基准则丢弃。"""
@@ -271,9 +278,9 @@ def _topic_images(article, items: list, cap: int = _TOPIC_IMAGES_CAP) -> list[st
         except (TypeError, ValueError, IndexError):
             # IndexError：调用方行对象缺 image_urls 列（防御，勿依赖——列应随查询给全）
             gallery = []
-        candidates += [(u, i["url"]) for u in gallery]
         if i["image_url"]:
             candidates.append((i["image_url"], i["url"]))
+        candidates += [(u, i["url"]) for u in gallery]
     if article is not None:
         candidates += [(u, None) for u in json.loads(article["image_refs"] or "[]")]
     out: list[str] = []

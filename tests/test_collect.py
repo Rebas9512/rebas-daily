@@ -314,6 +314,8 @@ def test_all_images():
         '<img src="https://x.com/logo.svg">'                # 矢量图标 → 过滤
         '<img src="data:image/gif;base64,xx">'              # data URI → 过滤
         '<img src="https://secure.gravatar.com/avatar/x.jpg">'  # 头像 → 过滤
+        '<img src="https://www.facebook.com/tr?id=1&ev=PageView&noscript=1">'  # 跟踪信标
+        '<img src="https://sb.scorecardresearch.com/p?c1=2&c2=6035310">'      # 跟踪信标
         '<img src="https://cdn.x.com/c.jpg?w=1200">'
     )
     imgs = all_images(html, base_url="https://x.com/post")

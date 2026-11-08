@@ -72,6 +72,7 @@ def first_image(html: str) -> str | None:
 # 图库提取的噪声过滤：跟踪像素/头像/表情/矢量图标（内容摄影不会是 svg）
 _IMG_JUNK_RE = re.compile(
     r"^data:|\.svg(?:\?|$)|gravatar\.com|doubleclick\.|feedburner"
+    r"|facebook\.com/tr\b|scorecardresearch\.com"      # 跟踪信标（noscript 像素，2026-11-07）
     r"|/emoji|/smilies?/|/avatars?/|pixel\.(?:gif|png)|spacer\.|blank\.gif",
     re.I)
 # WordPress 缩略图尺寸后缀（photo-768x512.jpg）：归一后去重，同图多尺寸只留首个
