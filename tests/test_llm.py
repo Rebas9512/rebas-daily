@@ -205,6 +205,35 @@ def test_codex_backend_image_flags(tmp_path, monkeypatch):
     assert "-i" not in captured["cmd"]
 
 
+def test_codex_backend_prompt_via_stdin(tmp_path, monkeypatch):
+    """提示词经 stdin 传入（2026-11-13 事故：财经头条聚合 70 条报道，writer 提示词超过
+    Linux 单参数 128KB 上限 → Argument list too long 连挂三批）：argv 里只有 "-"，
+    提示词原文走 input=；"-" 在最后且不紧跟 -i 的取值（防被当成图片路径）。"""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    from rebas.llm import codex_cli
+
+    monkeypatch.setattr(codex_cli, "find_codex_bin", lambda: "/bin/codex-fake")
+    captured = {}
+
+    def fake_run(cmd, **kw):
+        captured["cmd"], captured["input"] = cmd, kw.get("input")
+        Path(cmd[cmd.index("--output-last-message") + 1]).write_text("ok")
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(codex_cli.subprocess, "run", fake_run)
+    backend = codex_cli.CodexBackend(SimpleNamespace(codex_home=tmp_path),
+                                     {"default": "m"}, call_gap=0)
+    huge = "材料" * 100_000            # 600KB UTF-8，远超单参数上限
+    assert backend.complete(huge, images=[tmp_path / "a.jpg"]) == "ok"
+    cmd = captured["cmd"]
+    assert captured["input"] == huge
+    assert huge not in cmd and cmd[-1] == "-"
+    assert cmd[-2] == "m" and cmd[-3] == "-m"    # "-" 前面隔着选项，不会被 -i 吞
+    assert sum(len(a.encode()) for a in cmd) < 4096
+
+
 # ---------------------------------------------------------------------------
 # 定点修补二轮：漏写反斜杠（2026-09-05 quant 写作 LaTeX 转义忽双忽单事故）
 # ---------------------------------------------------------------------------

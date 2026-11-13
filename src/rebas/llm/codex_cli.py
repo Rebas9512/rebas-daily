@@ -1,8 +1,13 @@
 """codex_cli 后端：经 Codex CLI 无头模式消化 ChatGPT 订阅额度。
 
-调用方式与 scripts/verify_codex.sh 一致（2026-07-03 实测可用）：
+调用方式（2026-07-03 实测可用，2026-11-13 提示词改走 stdin）：
   CODEX_HOME=<项目>/.codex codex exec --skip-git-repo-check -s read-only \
-      --output-last-message <tmp> -m <model> <prompt>
+      --output-last-message <tmp> -m <model> -   < prompt
+
+提示词经 stdin 传入（PROMPT 参数写 "-"）：原先作为命令行参数，Linux 单个参数上限
+128KB（MAX_ARG_STRLEN），11-13 刊财经头条聚合 70 条报道、材料 10 万字，writer 提示词
+超限 → OSError: Argument list too long，连挂批 4/批 5/次日批 1 自愈，整期停在 checked。
+stdin 无长度上限；顺带堵住"继承父进程 stdin、ssh 下等输入卡死"的老坑。
 """
 
 from __future__ import annotations
@@ -78,7 +83,10 @@ class CodexBackend:
                      # 图片附件（撰写期图片审选）：-i 按顺序附图，与提示词编号对应
                      *(x for p in images for x in ("-i", str(p))),
                      "--output-last-message", str(out_path),
-                     *(["-m", model] if model else []), prompt],
+                     # "-"=从 stdin 读提示词（见模块说明）；必须在 -i 之后隔着其它选项，
+                     # 否则会被 -i 的多值参数当成图片路径吞掉
+                     *(["-m", model] if model else []), "-"],
+                    input=prompt,
                     capture_output=True, text=True, timeout=timeout,
                     env={**os.environ, "CODEX_HOME": str(self.codex_home)},
                 )
