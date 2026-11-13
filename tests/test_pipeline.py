@@ -25,9 +25,11 @@ class TestPromptTemplates:
         editor = render_prompt("editor", board_name=p.name, issue_date="2026-07-03",
                                count=2, profile_block=pb, feature_cap=4,
                                existing_block="（本期该板块尚无选题——常规选题轮）",
+                               sibling_block="## 兄弟版面「商业」本期已定选题\n- x\n",
                                recent_threads_block="（空）", items_block="[1] ...")
         assert "thread_key" in editor and "材料深度决定篇幅" in editor
         assert "本期已有选题" in editor
+        assert "兄弟版面「商业」" in editor     # 兄弟版面块（2026-11-13）
         # 薄材料新闻/repo 不压排版：主编被告知下游有调查编辑补材料
         assert "调查编辑" in editor and "仅标题" in editor
         checker = render_prompt("checker", topic_title="T", materials_block="[S1] ...")
@@ -774,6 +776,104 @@ def test_checker_background_review_stories(tmp_path):
     bg2 = json.loads(conn.execute("SELECT background FROM topics WHERE id=?",
                                   (tid2,)).fetchone()[0])
     assert "stories" not in bg2 and bg2["reviewed"] is True
+
+
+class TestEditorSiblings:
+    """兄弟版面（2026-11-13）：科技/商业、设计/艺术主编互相看到对方本期选题，同一事件
+    只上一个版面（科技/商业 30 天撞题 18 次，黄仁勋辞任两版标题一字不差）。"""
+
+    D = "2026-11-13"
+
+    def _conf(self):
+        import dataclasses
+
+        from rebas.config import load_config
+        return dataclasses.replace(load_config(), editor_sibling_boards=(
+            ("tech", "finance"), ("design", "art")))
+
+    def _conn(self, tmp_path, with_tech_topic=True):
+        from rebas import db as database
+        from rebas.collect.base import utcnow_iso
+        conn = database.init_db(tmp_path / "t.sqlite")
+        conn.execute("INSERT INTO issues (issue_date, status, updated_at)"
+                     " VALUES (?, 'pending', 'x')", (self.D,))
+        if with_tech_topic:
+            conn.execute(
+                "INSERT INTO topics (issue_date, board, title, thread_key, item_ids,"
+                " decision, created_at) VALUES (?,'tech','黄仁勋辞任：英伟达进入后创始人时代',"
+                " 'nvidia-jensen-huang-resignation','[]','feature','x')", (self.D,))
+        for i in range(3):
+            conn.execute(
+                "INSERT INTO raw_items (source_id, board, kind, url, url_canonical, title,"
+                " summary, fetched_at, status, signals) VALUES"
+                " ('wsj-markets','finance','news',?,?,?,'摘要',?,'screened',"
+                " '{\"screen_score\": 8}')",
+                (f"https://x.com/{i}", f"https://x.com/{i}", f"条目{i}", utcnow_iso()))
+        conn.commit()
+        return conn
+
+    def test_context_blocks(self, tmp_path):
+        from rebas.agents.stages import _sibling_context
+        conn = self._conn(tmp_path)
+        conf = self._conf()
+        # 后选方（商业）：看到科技已定选题清单 + 重复禁令
+        block, keys, titles, n = _sibling_context(conn, conf, "finance", self.D)
+        assert n == 1 and "本期已定选题" in block and "不要再选同一事件" in block
+        assert "nvidia-jensen-huang-resignation" in block
+        assert keys == {"nvidia-jensen-huang-resignation"}
+        # 先选方（科技，商业尚无选题）：拿到对方定位，主线贴合对方的留给对方
+        block2, keys2, _, n2 = _sibling_context(conn, conf, "tech", self.D)
+        assert n2 == 0 and not keys2
+        assert "留给对方" in block2 and "美股市场动态" in block2 and "商业" in block2
+        # 无兄弟版面的板块 / 配置关闭：空块，提示词与旧版一致
+        assert _sibling_context(conn, conf, "academic", self.D) == ("", set(), set(), 0)
+        import dataclasses
+        off = dataclasses.replace(conf, editor_sibling_boards=())
+        assert _sibling_context(conn, off, "finance", self.D)[0] == ""
+
+    def test_gate_drops_exact_duplicates(self, tmp_path):
+        """代码兜底：thread_key 或标题与对方完全相同的直接丢，其余照常入选；
+        stats 带看到的兄弟选题数与丢弃数，提示词里有兄弟版面块。"""
+        import json
+
+        from rebas.agents.stages import stage_editor
+        from rebas.config import load_profile
+        conn = self._conn(tmp_path)
+        ids = [r[0] for r in conn.execute("SELECT id FROM raw_items ORDER BY id")]
+        backend = _FakeBackend(json.dumps({"topics": [
+            {"title": "英伟达换帅冲击美股", "thread_key": "Nvidia-Jensen-Huang-Resignation",
+             "item_ids": [ids[0]], "decision": "feature", "slot": "headline"},   # 同 key
+            {"title": "黄仁勋辞任：英伟达进入后创始人时代 ", "thread_key": "nvda-ceo",
+             "item_ids": [ids[1]], "decision": "brief"},                          # 同标题
+            {"title": "美债收益率跳升", "thread_key": "treasury-yields-jump",
+             "item_ids": [ids[2]], "decision": "brief"},
+        ], "notes": "n"}, ensure_ascii=False))
+        stats = stage_editor(conn, self._conf(), backend, "finance",
+                             load_profile("finance"), "商业", self.D)
+        assert stats["features"] == 0 and stats["briefs"] == 1
+        assert stats["sibling_topics"] == 1 and stats["sibling_dup_dropped"] == 2
+        assert "兄弟版面" in backend.prompts[0]
+        keys = [r[0] for r in conn.execute(
+            "SELECT thread_key FROM topics WHERE board='finance'")]
+        assert keys == ["treasury-yields-jump"]
+
+    def test_first_mover_stats(self, tmp_path):
+        """先选方：sibling_topics=0，无丢弃键；无兄弟版面板块的 stats 不带该键。"""
+        import json
+
+        from rebas.agents.stages import stage_editor
+        from rebas.config import load_profile
+        conn = self._conn(tmp_path, with_tech_topic=False)
+        conn.execute("UPDATE raw_items SET board='tech'")
+        conn.commit()
+        iid = conn.execute("SELECT id FROM raw_items").fetchone()[0]
+        backend = _FakeBackend(json.dumps({"topics": [
+            {"title": "T", "thread_key": "k", "item_ids": [iid], "decision": "brief"}],
+            "notes": ""}))
+        stats = stage_editor(conn, self._conf(), backend, "tech",
+                             load_profile("tech"), "科技", self.D)
+        assert stats["sibling_topics"] == 0 and "sibling_dup_dropped" not in stats
+        assert "留给对方" in backend.prompts[0]
 
 
 class TestEditorRefill:

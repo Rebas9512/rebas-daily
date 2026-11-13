@@ -368,6 +368,64 @@ def _normalize_thread_key(key: str) -> str:
     return _THREAD_KEY_RE.sub("", key)[:80] or "untitled"
 
 
+# ---------- 兄弟版面（2026-11-13）：组内主编互相看到对方本期选题，同一事件只上一个版面 ----------
+
+def _sibling_boards(conf: AppConfig, board: str) -> list[str]:
+    out: list[str] = []
+    for group in conf.editor_sibling_boards:
+        if board in group:
+            out += [b for b in group if b != board and b not in out]
+    return out
+
+
+def _sibling_title_key(title: str) -> str:
+    """兄弟版面标题比对键：去标点空白、小写，保留中文（注意别和下方经典重读的
+    _norm_title 混用——那个只留 ASCII，中文标题会归一成空串、空串彼此"相等"）。"""
+    return re.sub(r"\W+", "", title or "").lower()
+
+
+def _sibling_context(conn, conf: AppConfig, board: str,
+                     issue_date: str) -> tuple[str, set[str], set[str], int]:
+    """兄弟版面提示块 + 代码兜底用的身份集。
+
+    批次顺序决定谁先选（艺术批 1 先于设计批 4；同批内按 publish_boards 顺序科技先于商业）：
+    - 对方本期已有选题 → 列清单，明令同一事件不再选（换角度/换标题也算）；
+    - 对方还没选 → 给对方定位（画像名+兴趣项），主线更贴合对方的事件留给对方——
+      否则先选的一方会把对方的核心选题全抢走（科技/商业撞题几乎都是营收/IPO/融资类）。
+    返回 (提示块, 对方 thread_key 集, 对方归一标题集, 对方选题数)；无兄弟版面返回空块。"""
+    from rebas.config import load_profile   # 懒加载：只有配了兄弟版面才读对方画像
+    sibs = _sibling_boards(conf, board)
+    if not sibs:
+        return "", set(), set(), 0
+    blocks, keys, titles, seen = [], set(), set(), 0
+    for sib in sibs:
+        prof = load_profile(sib)
+        rows = conn.execute(
+            "SELECT thread_key, title, decision FROM topics"
+            " WHERE issue_date=? AND board=? ORDER BY id", (issue_date, sib)).fetchall()
+        if rows:
+            seen += len(rows)
+            keys.update(r["thread_key"] for r in rows)
+            titles.update(k for k in (_sibling_title_key(r["title"]) for r in rows) if k)
+            blocks.append(
+                f"## 兄弟版面「{prof.name}」本期已定选题\n"
+                "读者会同时读两个版面，同一事件只能出现在一个版面。下列事件对方已经选了——"
+                "**不要再选同一事件**（换个角度、换个标题、只取其中一部分材料都算重复）；"
+                "同一公司/同一领域里另外的独立事件照常可选。\n"
+                + "\n".join(f"- [{r['decision']}] {r['thread_key']}: {r['title']}"
+                            for r in rows))
+        else:
+            focus = "、".join(it.name for it in
+                             sorted(prof.interests, key=lambda it: -it.weight))
+            blocks.append(
+                f"## 兄弟版面「{prof.name}」\n"
+                "读者会同时读两个版面，同一事件只能出现在一个版面。对方本期还没选题，"
+                "它会在你之后选、并避开你已选的事件——所以分工由你先把关：对方关注"
+                f"「{focus}」，一个事件的主线若更贴合对方定位，留给对方、你不要选；"
+                "主线落在本版定位上的才选。")
+    return "\n\n".join(blocks) + "\n", keys, titles, seen
+
+
 def stage_editor(conn, conf: AppConfig, backend: LLMBackend, board: str,
                  profile: Profile, board_name: str, issue_date: str,
                  refill: bool = False) -> dict:
@@ -462,17 +520,19 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
     else:
         existing_block = "（本期该板块尚无选题——常规选题轮）"
 
+    sibling_block, sib_keys, sib_titles, sib_seen = _sibling_context(
+        conn, conf, board, issue_date)
     prompt = render_prompt(
         "editor", board_name=board_name, issue_date=issue_date, count=len(lines),
         profile_block=profile_block(profile), feature_cap=conf.feature_cap,
-        existing_block=existing_block,
+        existing_block=existing_block, sibling_block=sibling_block,
         recent_threads_block=recent_block, items_block="\n".join(lines))
     result = complete_json(backend, prompt, role="editor")
 
     now = utcnow_iso()
     feat_total = sum(1 for r in existing if r["decision"] == "feature")
     has_headline = any(r["slot"] == "headline" for r in existing)
-    new_feat = new_brief = 0
+    new_feat = new_brief = sib_dropped = 0
     selected_ids: set[int] = set()
     for t in result.get("topics") or []:
         if not isinstance(t, dict):        # 字段级容错：单条非法跳过
@@ -482,6 +542,12 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
             continue
         decision = t.get("decision")
         if decision not in ("feature", "brief"):
+            continue
+        # 兄弟版面代码兜底：与对方本期选题 thread_key 或标题完全相同 → 丢（提示词管近似，
+        # 这里只拦确定的重复，防误杀；流水别墅/LVMH 教训：去重不能只有提示词一层）
+        if (_normalize_thread_key(t.get("thread_key") or "") in sib_keys
+                or _sibling_title_key(t.get("title") or "") in sib_titles):
+            sib_dropped += 1
             continue
         if decision == "feature":
             if feat_total >= conf.feature_cap:
@@ -556,6 +622,10 @@ def _stage_editor_regular(conn, conf: AppConfig, backend: LLMBackend, board: str
              "notes": (result.get("notes") or "")[:120]}
     if supplement:
         stats["refill"] = f"补充 {features} 专题 {briefs} 速览"
+    if sibling_block:
+        stats["sibling_topics"] = sib_seen          # 选题时看到的兄弟版面选题数（0=先选方）
+        if sib_dropped:
+            stats["sibling_dup_dropped"] = sib_dropped
     return stats
 
 

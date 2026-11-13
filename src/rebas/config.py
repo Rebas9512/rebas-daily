@@ -105,6 +105,7 @@ class AppConfig:
     research_odds_max: int
     research_odds_boards: tuple[str, ...]
     image_review_boards: tuple[str, ...]
+    editor_sibling_boards: tuple[tuple[str, ...], ...]
     classic_board: str
     classic_design_board: str
     classic_paper_board: str
@@ -161,6 +162,8 @@ def load_config() -> AppConfig:
                                                ["finance", "tech", "quant"])),
         image_review_boards=tuple(publish.get("image_review_boards",
                                               ["art", "design"])),
+        editor_sibling_boards=tuple(tuple(str(b) for b in group) for group in
+                                    publish.get("editor_sibling_boards", [])),
         classic_board=str(publish.get("classic_board", "")),
         classic_design_board=str(publish.get("classic_design_board", "")),
         classic_paper_board=str(publish.get("classic_paper_board", "")),

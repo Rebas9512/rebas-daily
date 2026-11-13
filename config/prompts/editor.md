@@ -14,6 +14,7 @@ ${profile_block}
 
 ## 本期已有选题
 ${existing_block}
+${sibling_block}
 
 ## 近 7 天已报道清单（避免重复选题；有实质新进展才可再选，并填 update_of_thread）
 ${recent_threads_block}
